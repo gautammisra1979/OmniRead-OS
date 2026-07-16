@@ -19,6 +19,7 @@
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
+    "nitro": "npm:nitro-nightly",
     "@tailwindcss/vite": "^4.1.18",
     "@types/node": "^25.3.0",
     "@types/react": "^19.2.13",
