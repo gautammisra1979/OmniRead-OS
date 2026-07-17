@@ -1,4 +1,4 @@
-import { useMemo, useRef, type RefObject } from "react";
+import { useMemo, useRef, useEffect, useState, type RefObject } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import { getAllProducts, type Product } from "~/data/products";
 import { ComingSoonSection } from "~/components/ComingSoonSection";
@@ -151,7 +151,32 @@ function CarouselRow({
 
 export function MagazineLayout() {
   const { t } = useLanguage();
+  const [hydrated, setHydrated] = useState(false);
   const allProducts = useMemo(() => getAllProducts(), []);
+
+  // Hydration guard — skip SSR render to avoid server/client mismatch
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+
+  if (!hydrated) {
+    return (
+      <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-8 rounded-2xl border p-6 text-center" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "color-mix(in srgb, var(--color-surface,#1e293b) 30%, transparent)" }}>
+          <h1 className="text-2xl font-bold sm:text-3xl" style={{ color: "var(--color-text)" }}>
+            {t("layout.magazine") ?? "Magazine Stream"}
+          </h1>
+          <p className="mt-2 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            {t("layout.magazineDesc") ?? "Browse by format"}
+          </p>
+        </div>
+        <div className="flex items-center justify-center py-16">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-t-transparent" style={{ borderColor: "var(--color-border, #334155)", borderTopColor: "var(--color-primary, #6366f1)" }} aria-hidden="true" />
+          <span className="sr-only">Loading...</span>
+        </div>
+      </section>
+    );
+  }
 
   const ebooks = allProducts.filter((p) => p.type === "ebook" && p.status !== "coming-soon").slice(0, MAX_PER_ROW);
   const audiobooks = allProducts.filter((p) => p.type === "audiobook" && p.status !== "coming-soon").slice(0, MAX_PER_ROW);

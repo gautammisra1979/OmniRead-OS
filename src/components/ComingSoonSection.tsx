@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import { getComingSoonCatalogItems, getCatalogItems } from "~/data/catalog";
 import { getAllProducts, type Product } from "~/data/products";
@@ -28,9 +28,16 @@ export function ComingSoonSection() {
   const { t } = useLanguage();
   const [notifyIds, setNotifyIds] = useState<Set<string>>(new Set());
   const [refreshKey, setRefreshKey] = useState(0);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Hydration guard — skip SSR render to avoid window access during SSR
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   // Re-render when storage changes
-  useState(() => {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     const handleStorage = () => setRefreshKey((k) => k + 1);
     window.addEventListener("storage", handleStorage);
     const interval = setInterval(() => setRefreshKey((k) => k + 1), 2000);
@@ -38,7 +45,9 @@ export function ComingSoonSection() {
       window.removeEventListener("storage", handleStorage);
       clearInterval(interval);
     };
-  });
+  }, []);
+
+  if (!hydrated) return null;
 
   const allProducts = getAllProducts();
   const comingSoonItems = allProducts.filter((p) => p.status === "coming-soon");
