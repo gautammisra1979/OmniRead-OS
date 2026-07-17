@@ -13,10 +13,10 @@ const LAYOUT_KEY = "omnimedos_active_layout";
 const FEATURED_KEY = "omnimedos_featured_product";
 
 export function getActiveLayout(): LayoutType {
-  if (typeof window === "undefined") return "classic";
+  if (typeof window === "undefined") return "magazine";
   const stored = localStorage.getItem(LAYOUT_KEY);
-  if (stored === "spotlight" || stored === "magazine") return stored;
-  return "classic";
+  if (stored === "classic" || stored === "spotlight" || stored === "magazine") return stored;
+  return "magazine";
 }
 
 export function setActiveLayout(layout: LayoutType): void {

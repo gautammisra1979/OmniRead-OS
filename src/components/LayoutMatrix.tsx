@@ -7,12 +7,12 @@ export function LayoutMatrix() {
   const layout = getActiveLayout();
 
   switch (layout) {
+    case "classic":
+      return <ClassicGridLayout />;
     case "spotlight":
       return <SpotlightLayout />;
     case "magazine":
-      return <MagazineLayout />;
-    case "classic":
     default:
-      return <ClassicGridLayout />;
+      return <MagazineLayout />;
   }
 }

@@ -16,8 +16,8 @@ export interface StylePresets {
 const STYLE_KEY = "omnimedos_style_presets";
 
 const DEFAULT_PRESETS: StylePresets = {
-  border: "rounded",
-  typography: "modern",
+  border: "sharp",
+  typography: "classic",
 };
 
 export const BORDER_PRESETS: Record<BorderPreset, { name: string; radius: string; shadow: string; ring: string }> = {
