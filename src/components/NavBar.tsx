@@ -13,7 +13,7 @@ export function NavBar({ onCartOpen, cartCount = 0 }: { onCartOpen?: () => void;
     <header className="w-full bg-white text-black border-b-4 border-black font-serif sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
         
-        {/* Left: Centered Brand Label/Logo Grid */}
+        {/* Left Branding Grid */}
         <div className="flex items-center gap-3">
           {branding.logoDataUrl ? (
             <img src={branding.logoDataUrl} alt="Logo" className="h-8 w-auto object-contain border border-black p-0.5" />
@@ -25,7 +25,7 @@ export function NavBar({ onCartOpen, cartCount = 0 }: { onCartOpen?: () => void;
           <span className="text-xs uppercase font-sans tracking-widest font-black opacity-60 hidden sm:inline">Engine</span>
         </div>
 
-        {/* Center: Old School Crisp Search Input Frame */}
+        {/* Center Search Input Frame */}
         <div className="w-full md:max-w-md flex items-center">
           <input
             type="text"
@@ -39,7 +39,7 @@ export function NavBar({ onCartOpen, cartCount = 0 }: { onCartOpen?: () => void;
           </button>
         </div>
 
-        {/* Right: Unified Navigation Links & Control Center Anchor */}
+        {/* Right Controls & Navigation */}
         <div className="flex items-center gap-4 text-sm font-bold">
           <nav className="hidden lg:flex items-center gap-4">
             <a href="/downloads" className="hover:underline text-black">{t("nav.downloads") ?? "Downloads"}</a>
@@ -51,7 +51,7 @@ export function NavBar({ onCartOpen, cartCount = 0 }: { onCartOpen?: () => void;
             <button
               type="button"
               onClick={onCartOpen}
-              className="relative p-2 border-2 border-black bg-white hover:bg-black hover:text-white transition-colors"
+              className="relative p-2 border-2 border-black bg-white text-black hover:bg-black hover:text-white transition-colors"
               aria-label="Open cart"
             >
               🛒 {cartCount > 0 && <span className="absolute -top-2 -right-2 bg-black text-white text-[10px] font-sans font-black border border-white px-1.5 rounded-full">{cartCount}</span>}
