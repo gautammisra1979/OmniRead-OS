@@ -22,15 +22,26 @@
     --input: #e4e4e7;
     --ring: #000000;
     --radius: 0px;
-    --color-text: #000000;
-    --color-text-muted: #52525b;
-    --color-surface: #ffffff;
-    --color-border: #000000;
   }
 }
 
 body {
   background-color: #ffffff !important;
   color: #000000 !important;
-  font-family: Georgia, Cambria, "Times New Roman", Times, serif;
+  font-family: Georgia, Cambria, "Times New Roman", Times, serif !important;
+  margin: 0;
+  padding: 0;
+}
+
+/* Hard old-school scrollbars for the product shelves */
+::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #ffffff;
+}
+::-webkit-scrollbar-thumb {
+  background: #000000;
+  border-radius: 0px;
 }
