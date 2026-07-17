@@ -1,7 +1,7 @@
 import { useMemo, useRef, useEffect, useState } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 
-const MOCK_COVERS = ["from-indigo-900 to-slate-900", "from-emerald-900 to-slate-900", "from-rose-900 to-slate-900", "from-amber-900 to-slate-900", "from-cyan-900 to-slate-900"];
+const MOCK_COLORS = ["#312e81", "#064e3b", "#4c0519", "#78350f", "#164e63"];
 const MOCK_ICONS = ["📖", "📘", "📕", "📙", "📗"];
 
 function getMockItems(type: string) {
@@ -10,8 +10,7 @@ function getMockItems(type: string) {
     title: "Featured " + (type === "ebook" ? "E-Book" : type === "audiobook" ? "Audiobook" : "Video") + " " + (i + 1),
     author: "Premium Author Edition",
     price: 14.99,
-    coverFrom: MOCK_COVERS[i % MOCK_COVERS.length],
-    coverTo: "to-black",
+    coverBg: MOCK_COLORS[i % MOCK_COLORS.length],
     coverIcon: MOCK_ICONS[i % MOCK_ICONS.length]
   }));
 }
@@ -26,20 +25,20 @@ function CarouselRow({ title, products }: { title: string; products: any[] }) {
         {title}
       </h3>
       <div className="relative group">
-        <button type="button" onClick={scrollLeft} className="absolute left-0 top-1/2 z-10 -translate-y-1/2 p-3 opacity-0 group-hover:opacity-100 transition-opacity bg-white text-black border-2 border-black font-bold shadow-[2px_2px_0px_rgba(0,0,0,1)]" aria-label="Scroll left">{"<"}</button>
+        <button type="button" onClick={scrollLeft} className="absolute left-[-15px] top-1/2 z-10 -translate-y-1/2 p-3 bg-white text-black border-2 border-black font-bold shadow-[3px_3px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-52%] active:translate-x-0 active:translate-y-[-50%] transition-transform" aria-label="Scroll left">◀</button>
         <div ref={scrollRef} className="flex gap-6 overflow-x-auto scroll-smooth snap-x pb-4" style={{ scrollbarWidth: "none" }} role="list" aria-label={title}>
           {products.map((p) => (
             <div key={p.id} className="flex-shrink-0 w-48 snap-start" role="listitem">
-              <div className="overflow-hidden transition-transform duration-150 hover:-translate-y-1 bg-white border-[3px] border-black shadow-[4px_4px_0px_rgba(0,0,0,1)]">
+              <div className="overflow-hidden bg-white border-[3px] border-black shadow-[5px_5px_0px_rgba(0,0,0,1)]">
                 <div className="aspect-[3/4] w-full overflow-hidden border-b-2 border-black">
-                  <div className={"flex h-full w-full items-center justify-center bg-gradient-to-br " + p.coverFrom + " " + p.coverTo + " text-4xl"}>
+                  <div className="flex h-full w-full items-center justify-center text-4xl" style={{ backgroundColor: p.coverBg }}>
                     {p.coverIcon}
                   </div>
                 </div>
                 <div className="p-3 bg-white">
                   <p className="truncate text-sm font-extrabold uppercase tracking-wide text-black">{p.title}</p>
                   <p className="truncate text-xs opacity-75 italic mt-1 text-black">{p.author}</p>
-                  <div className="flex items-center gap-1 mt-1 text-xs font-semibold text-amber-600">
+                  <div className="flex items-center gap-1 mt-1 text-xs font-semibold text-amber-500">
                     <span>★</span><span>★</span><span>★</span><span>★</span><span>★</span>
                     <span className="text-[10px] text-gray-500">(42)</span>
                   </div>
@@ -49,7 +48,7 @@ function CarouselRow({ title, products }: { title: string; products: any[] }) {
             </div>
           ))}
         </div>
-        <button type="button" onClick={scrollRight} className="absolute right-0 top-1/2 z-10 -translate-y-1/2 p-3 opacity-0 group-hover:opacity-100 transition-opacity bg-white text-black border-2 border-black font-bold shadow-[2px_2px_0px_rgba(0,0,0,1)]" aria-label="Scroll right">{">"}</button>
+        <button type="button" onClick={scrollRight} className="absolute right-[-15px] top-1/2 z-10 -translate-y-1/2 p-3 bg-white text-black border-2 border-black font-bold shadow-[3px_3px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[-52%] active:translate-x-0 active:translate-y-[-50%] transition-transform" aria-label="Scroll right">▶</button>
       </div>
     </div>
   );
