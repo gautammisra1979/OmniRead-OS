@@ -1,18 +1,65 @@
-import { useMemo, useRef, useEffect, useState, type RefObject } from "react";
+import { useMemo, useRef, useEffect, useState } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import { getAllProducts, type Product } from "~/data/products";
-import { ComingSoonSection } from "~/components/ComingSoonSection";
 
 const MAX_PER_ROW = 10;
+
+/* ─── Mock placeholder data for empty catalog ─── */
+
+const MOCK_COVERS: { from: string; to: string; icon: string }[] = [
+  { from: "from-indigo-500", to: "to-purple-700", icon: "📖" },
+  { from: "from-emerald-500", to: "to-teal-700", icon: "📘" },
+  { from: "from-rose-500", to: "to-pink-700", icon: "📕" },
+  { from: "from-amber-500", to: "to-orange-700", icon: "📙" },
+  { from: "from-cyan-500", to: "to-blue-700", icon: "📗" },
+];
+
+function generateMockProducts(type: "ebook" | "audiobook" | "video", count: number): Product[] {
+  const labels: Record<string, { title: string; author: string; format: string; price: number }> = {
+    ebook:     { title: "Sample E-Book",      author: "Featured Author",   format: "PDF E-Book",      price: 12.99 },
+    audiobook: { title: "Sample Audiobook",   author: "Narrated Voice",    format: "MP3 Audiobook",   price: 9.99 },
+    video:     { title: "Sample Video Course", author: "Instructor Pro",   format: "MP4 Video Guide", price: 24.99 },
+  };
+  const base = labels[type];
+  return Array.from({ length: count }, (_, i) => {
+    const cover = MOCK_COVERS[i % MOCK_COVERS.length];
+    return {
+      id: `mock-${type}-${i}`,
+      title: `${base.title} ${i + 1}`,
+      author: base.author,
+      description: "A beautifully crafted sample to showcase your storefront. Add your own products to replace this placeholder.",
+      price: base.price,
+      format: base.format,
+      type,
+      coverFrom: cover.from,
+      coverTo: cover.to,
+      coverIcon: cover.icon,
+      coverImage: null,
+      quizMood: [],
+      quizFormat: [],
+      quizHook: [],
+      quizPace: [],
+      status: "live" as const,
+      rating: 4.5,
+      reviewCount: 42,
+    };
+  });
+}
+
+/* ─── Carousel Row ─── */
 
 function CarouselRow({
   title,
   products,
+  mockProducts,
 }: {
   title: string;
   products: Product[];
+  mockProducts: Product[];
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  const displayProducts = products.length > 0 ? products : mockProducts;
 
   const scrollLeft = () => {
     scrollRef.current?.scrollBy({ left: -300, behavior: "smooth" });
@@ -21,8 +68,6 @@ function CarouselRow({
   const scrollRight = () => {
     scrollRef.current?.scrollBy({ left: 300, behavior: "smooth" });
   };
-
-  if (products.length === 0) return null;
 
   return (
     <div className="mb-8">
@@ -67,7 +112,7 @@ function CarouselRow({
           role="list"
           aria-label={title}
         >
-          {products.map((product) => (
+          {displayProducts.map((product) => (
             <div
               key={product.id}
               className="flex-shrink-0 w-48 snap-start"
@@ -116,6 +161,28 @@ function CarouselRow({
                       `$${product.price.toFixed(2)}`
                     )}
                   </p>
+                  {product.rating && product.rating > 0 && (
+                    <div className="mt-1 flex items-center gap-1">
+                      <div className="flex items-center gap-0.5">
+                        {Array.from({ length: 5 }, (_, i) => (
+                          <svg
+                            key={i}
+                            className={`h-3 w-3 ${i < Math.round(product.rating!) ? "text-yellow-400" : "text-gray-600"}`}
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                            aria-hidden="true"
+                          >
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                          </svg>
+                        ))}
+                      </div>
+                      {product.reviewCount && (
+                        <span className="text-[10px]" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+                          ({product.reviewCount})
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -148,6 +215,8 @@ function CarouselRow({
     </div>
   );
 }
+
+/* ─── Magazine Layout ─── */
 
 export function MagazineLayout() {
   const { t } = useLanguage();
@@ -202,17 +271,18 @@ export function MagazineLayout() {
       <CarouselRow
         title={t("admin.analytics.typeEbook") ?? "Digital Books"}
         products={ebooks}
+        mockProducts={generateMockProducts("ebook", 5)}
       />
       <CarouselRow
         title={t("admin.analytics.typeAudiobook") ?? "Audiobooks"}
         products={audiobooks}
+        mockProducts={generateMockProducts("audiobook", 5)}
       />
       <CarouselRow
         title={t("admin.analytics.typeVideo") ?? "Video Courses"}
         products={videos}
+        mockProducts={generateMockProducts("video", 5)}
       />
-
-      <ComingSoonSection />
     </section>
   );
 }
