@@ -51,15 +51,11 @@ function generateMockProducts(type: "ebook" | "audiobook" | "video", count: numb
 function CarouselRow({
   title,
   products,
-  mockProducts,
 }: {
   title: string;
   products: Product[];
-  mockProducts: Product[];
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
-
-  const displayProducts = products.length > 0 ? products : mockProducts;
 
   const scrollLeft = () => {
     scrollRef.current?.scrollBy({ left: -300, behavior: "smooth" });
@@ -112,7 +108,7 @@ function CarouselRow({
           role="list"
           aria-label={title}
         >
-          {displayProducts.map((product) => (
+          {products.map((product) => (
             <div
               key={product.id}
               className="flex-shrink-0 w-48 snap-start"
@@ -247,9 +243,21 @@ export function MagazineLayout() {
     );
   }
 
-  const ebooks = allProducts.filter((p) => p.type === "ebook" && p.status !== "coming-soon").slice(0, MAX_PER_ROW);
-  const audiobooks = allProducts.filter((p) => p.type === "audiobook" && p.status !== "coming-soon").slice(0, MAX_PER_ROW);
-  const videos = allProducts.filter((p) => p.type === "video" && p.status !== "coming-soon").slice(0, MAX_PER_ROW);
+  // Filter real products by format (excluding coming-soon), then fallback to mock placeholders if empty
+  const ebooks = (() => {
+    const real = allProducts.filter((p) => p.type === "ebook" && p.status !== "coming-soon").slice(0, MAX_PER_ROW);
+    return real.length > 0 ? real : generateMockProducts("ebook", 5);
+  })();
+
+  const audiobooks = (() => {
+    const real = allProducts.filter((p) => p.type === "audiobook" && p.status !== "coming-soon").slice(0, MAX_PER_ROW);
+    return real.length > 0 ? real : generateMockProducts("audiobook", 5);
+  })();
+
+  const videos = (() => {
+    const real = allProducts.filter((p) => p.type === "video" && p.status !== "coming-soon").slice(0, MAX_PER_ROW);
+    return real.length > 0 ? real : generateMockProducts("video", 5);
+  })();
 
   return (
     <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
@@ -271,17 +279,14 @@ export function MagazineLayout() {
       <CarouselRow
         title={t("admin.analytics.typeEbook") ?? "Digital Books"}
         products={ebooks}
-        mockProducts={generateMockProducts("ebook", 5)}
       />
       <CarouselRow
         title={t("admin.analytics.typeAudiobook") ?? "Audiobooks"}
         products={audiobooks}
-        mockProducts={generateMockProducts("audiobook", 5)}
       />
       <CarouselRow
         title={t("admin.analytics.typeVideo") ?? "Video Courses"}
         products={videos}
-        mockProducts={generateMockProducts("video", 5)}
       />
     </section>
   );
