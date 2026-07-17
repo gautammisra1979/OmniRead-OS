@@ -4,6 +4,9 @@ import { useLanguage } from "~/components/LanguageProvider";
 import { CrossSellGrid } from "~/components/CrossSellGrid";
 import { MediaPlayer } from "~/components/MediaPlayer";
 import { addToCart } from "~/data/cart";
+import { QuickHoverMenu } from "~/components/QuickHoverMenu";
+
+const MAX_PRODUCTS = 10;
 
 function Toast({
   message,
@@ -51,7 +54,7 @@ function Toast({
   );
 }
 
-function StarRating({ rating }: { rating: number }) {
+function StarRating({ rating, reviewCount }: { rating: number; reviewCount?: number }) {
   return (
     <div className="flex items-center gap-0.5" aria-label={`${rating} out of 5 stars`}>
       {Array.from({ length: 5 }, (_, i) => (
@@ -65,6 +68,11 @@ function StarRating({ rating }: { rating: number }) {
           <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
         </svg>
       ))}
+      {reviewCount !== undefined && reviewCount > 0 && (
+        <span className="ml-1 text-[10px]" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+          ({reviewCount})
+        </span>
+      )}
     </div>
   );
 }
@@ -73,15 +81,27 @@ function ProductCard({
   product,
   index,
   onBuy,
+  onViewDetails,
 }: {
   product: Product;
   index: number;
   onBuy: (title: string) => void;
+  onViewDetails?: (id: string) => void;
 }) {
   const { t } = useLanguage();
   const hasQuizTags = !!(product.quizMood?.length || product.quizFormat?.length || product.quizHook?.length || product.quizPace?.length);
+  const isComingSoon = product.status === "coming-soon";
 
-  return (
+  const handleAddToCart = useCallback((id: string) => {
+    const p = getAllProducts().find((x) => x.id === id);
+    if (p) onBuy(p.title);
+  }, [onBuy]);
+
+  const handleViewDetails = useCallback((id: string) => {
+    onViewDetails?.(id);
+  }, [onViewDetails]);
+
+  const card = (
     <article
       className="group flex flex-col overflow-hidden rounded-2xl border shadow-lg backdrop-blur-sm transition-all hover:shadow-xl"
       style={{
@@ -111,10 +131,19 @@ function ProductCard({
         <span className="absolute right-3 top-3 rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-medium text-white backdrop-blur-sm">
           {product.format}
         </span>
+        {isComingSoon && (
+          <span className="absolute left-3 top-3 rounded-full bg-amber-500/30 px-2.5 py-0.5 text-xs font-medium text-amber-300 backdrop-blur-sm">
+            {t("comingSoon.badge") ?? "Coming Soon"}
+          </span>
+        )}
       </div>
 
       <div className="flex flex-1 flex-col gap-2 p-5">
-        <StarRating rating={4.7} />
+        {(product.rating ?? 0) > 0 ? (
+          <StarRating rating={product.rating!} reviewCount={product.reviewCount} />
+        ) : (
+          <StarRating rating={4.7} />
+        )}
 
         <h3 className="text-lg font-semibold leading-tight" style={{ color: "var(--color-text)" }}>
           {product.title}
@@ -163,6 +192,49 @@ function ProductCard({
       </div>
     </article>
   );
+
+  // Wrap in QuickHoverMenu if it's a catalog item (not static demo product)
+  if (product.id.startsWith("catalog-")) {
+    return (
+      <QuickHoverMenu
+        product={{
+          id: product.id,
+          title: product.title,
+          author: product.author,
+          price: product.price,
+          displayPrice: product.displayPrice,
+          hasDiscount: product.hasDiscount,
+          coverImage: product.coverImage,
+          coverIcon: product.coverIcon,
+          coverFrom: product.coverFrom,
+          coverTo: product.coverTo,
+          format: product.format,
+          type: product.type,
+          rating: product.rating,
+          reviewCount: product.reviewCount,
+          description: product.description,
+        }}
+        onAddToCart={handleAddToCart}
+        onViewDetails={handleViewDetails}
+      >
+        <div
+          className="animate-slide-up"
+          style={{ animationDelay: `${index * 150}ms` }}
+        >
+          {card}
+        </div>
+      </QuickHoverMenu>
+    );
+  }
+
+  return (
+    <div
+      className="animate-slide-up"
+      style={{ animationDelay: `${index * 150}ms` }}
+    >
+      {card}
+    </div>
+  );
 }
 
 export function ProductGrid() {
@@ -184,6 +256,10 @@ export function ProductGrid() {
   }, []);
 
   const allProducts = getAllProducts();
+  // Filter out "coming-soon" items from the main grid (they go in ComingSoonSection)
+  const liveProducts = allProducts.filter((p) => p.status !== "coming-soon");
+  // Limit to max 10 items
+  const displayProducts = liveProducts.slice(0, MAX_PRODUCTS);
 
   const handleBuy = useCallback(
     (title: string) => {
@@ -211,6 +287,12 @@ export function ProductGrid() {
     setToastVisible(false);
   }, []);
 
+  const handleViewDetails = useCallback((id: string) => {
+    if (typeof window !== "undefined") {
+      window.location.href = `/product/${id}`;
+    }
+  }, []);
+
   return (
     <section id="products" className="px-4 py-20 sm:px-6 sm:py-28 lg:px-8"
       style={{ backgroundColor: "var(--color-bg)" }}
@@ -227,20 +309,14 @@ export function ProductGrid() {
           </p>
         </div>
 
-        {allProducts.length === 0 ? (
+        {displayProducts.length === 0 ? (
           <p className="mt-12 text-center text-sm" style={{ color: "var(--color-text-muted)" }}>
             No products available yet. Check back soon!
           </p>
         ) : (
           <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {allProducts.map((product, index) => (
-              <div
-                key={product.id}
-                className="animate-slide-up"
-                style={{ animationDelay: `${index * 150}ms` }}
-              >
-                <ProductCard product={product} index={index} onBuy={handleBuy} />
-              </div>
+            {displayProducts.map((product, index) => (
+              <ProductCard key={product.id} product={product} index={index} onBuy={handleBuy} onViewDetails={handleViewDetails} />
             ))}
           </div>
         )}

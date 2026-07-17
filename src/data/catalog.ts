@@ -1,3 +1,5 @@
+export type CatalogStatus = "live" | "coming-soon" | "retired";
+
 export interface CatalogItem {
   id: string;
   title: string;
@@ -12,6 +14,14 @@ export interface CatalogItem {
     dataUrl: string | null; // base64 data URL from file upload
   };
   createdAt: string; // ISO date string
+  // Lifecycle status
+  status?: CatalogStatus; // defaults to "live" if not set
+  // Star ratings (from CSV import or manual)
+  rating?: number; // 0-5 star rating
+  reviewCount?: number; // number of reviews
+  // Catalog access control
+  allowLibrarian?: boolean; // Allow AI Librarian access
+  allowChallenge?: boolean; // Allow Challenge engine access
   // Quiz concierge tags
   quizMood?: string[];
   quizFormat?: string[];
@@ -73,6 +83,44 @@ export function deleteCatalogItem(id: string): void {
   }
 }
 
+/** Get only live catalog items (excludes retired, includes coming-soon) */
+export function getLiveCatalogItems(): CatalogItem[] {
+  return getCatalogItems().filter((i) => i.status !== "retired");
+}
+
+/** Get only live + coming-soon (non-retired) items */
+export function getActiveCatalogItems(): CatalogItem[] {
+  return getCatalogItems().filter((i) => i.status !== "retired");
+}
+
+/** Get only coming-soon items */
+export function getComingSoonCatalogItems(): CatalogItem[] {
+  return getCatalogItems().filter((i) => i.status === "coming-soon");
+}
+
+/** Update a catalog item's status */
+export function updateCatalogStatus(id: string, status: CatalogStatus): void {
+  const items = getCatalogItems();
+  const idx = items.findIndex((i) => i.id === id);
+  if (idx === -1) return;
+  items[idx] = { ...items[idx], status };
+  saveAll(items);
+  if (typeof window !== "undefined") {
+    import("./flightRecorder").then(({ appendTransaction }) =>
+      appendTransaction("CATALOG_MUTATION", items),
+    );
+  }
+}
+
+/** Update a catalog item's rating */
+export function updateCatalogRating(id: string, rating: number, reviewCount?: number): void {
+  const items = getCatalogItems();
+  const idx = items.findIndex((i) => i.id === id);
+  if (idx === -1) return;
+  items[idx] = { ...items[idx], rating: Math.max(0, Math.min(5, rating)), reviewCount: reviewCount ?? items[idx].reviewCount };
+  saveAll(items);
+}
+
 export function createCatalogItem(input: {
   title: string;
   author: string;
@@ -82,6 +130,9 @@ export function createCatalogItem(input: {
   description: string;
   coverImage: string | null;
   mediaFile: { name: string; dataUrl: string | null };
+  status?: CatalogStatus;
+  rating?: number;
+  reviewCount?: number;
   quizMood?: string[];
   quizFormat?: string[];
   quizHook?: string[];

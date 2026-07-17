@@ -4,6 +4,9 @@ import { getCatalogItems, type CatalogItem } from "~/data/catalog";
 import { getAllProducts, type Product } from "~/data/products";
 import { getFeaturedProductId, getLatestCatalogItem } from "~/data/layoutMatrix";
 import { getPromoSettings, calculateDiscountedPrice } from "~/data/promotions";
+import { ComingSoonSection } from "~/components/ComingSoonSection";
+
+const MAX_SECONDARY = 10;
 
 export function SpotlightLayout() {
   const { t } = useLanguage();
@@ -49,8 +52,8 @@ export function SpotlightLayout() {
   }
 
   const secondaryProducts = allProducts.filter(
-    (p) => p.id !== featuredProduct?.id,
-  );
+    (p) => p.id !== featuredProduct?.id && p.status !== "coming-soon",
+  ).slice(0, MAX_SECONDARY);
 
   return (
     <>
@@ -119,7 +122,7 @@ export function SpotlightLayout() {
                       ${featuredProduct.displayPrice.toFixed(2)}
                     </>
                   ) : (
-                    `$${featuredProduct.price.toFixed(2)}`
+                    `${featuredProduct.price.toFixed(2)}`
                   )}
                 </span>
                 <button
@@ -192,7 +195,7 @@ export function SpotlightLayout() {
                       ${product.displayPrice.toFixed(2)}
                     </>
                   ) : (
-                    `$${product.price.toFixed(2)}`
+                    `${product.price.toFixed(2)}`
                   )}
                 </span>
               </div>
@@ -200,6 +203,8 @@ export function SpotlightLayout() {
           </div>
         </section>
       )}
+
+      <ComingSoonSection />
     </>
   );
 }

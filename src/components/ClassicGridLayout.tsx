@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { HeroSection } from "~/components/HeroSection";
 import { ProductGrid } from "~/components/ProductGrid";
+import { ComingSoonSection } from "~/components/ComingSoonSection";
 import { useLanguage } from "~/components/LanguageProvider";
 
 export function ClassicGridLayout() {
@@ -37,6 +38,7 @@ export function ClassicGridLayout() {
       </section>
 
       <ProductGrid />
+      <ComingSoonSection />
     </>
   );
 }

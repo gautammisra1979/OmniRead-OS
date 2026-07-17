@@ -61,7 +61,10 @@ import { OffboardingCenter } from "~/components/OffboardingCenter";
 import { RefundClaimsManager } from "~/components/RefundClaimsManager";
 import { PlatformFactoryReset } from "~/components/PlatformFactoryReset";
 import { StorageConsole } from "~/components/StorageConsole";
-import { getCatalogItems, type CatalogItem } from "~/data/catalog";
+import { StyleCustomizer, AnnouncementConfigSection } from "~/components/StyleCustomizer";
+import { MembershipConfigSection, CatalogAccessControl } from "~/components/CheckoutUpsells";
+import { DisclaimerConfigSection, InfoModalConfigSection } from "~/components/DisclaimerModal";
+import { getCatalogItems, updateCatalogStatus, updateCatalogRating, type CatalogItem, type CatalogStatus } from "~/data/catalog";
 import {
   getActiveLayout,
   setActiveLayout,
@@ -185,8 +188,21 @@ function AdminDashboard() {
       {/* Promotions & Discounts */}
       <PromotionsAdminSection />
 
+      {/* Catalog Status Management */}
+      <CatalogStatusManagement />
+
       {/* Storefront Layout Settings */}
       <StorefrontLayoutSettings />
+
+      {/* Storefront Style Customizer */}
+      <StyleCustomizer />
+      <AnnouncementConfigSection />
+
+      {/* Membership & Catalog Control */}
+      <MembershipConfigSection />
+      <CatalogAccessControl />
+      <DisclaimerConfigSection />
+      <InfoModalConfigSection />
 
       {/* Developer License Factory */}
       <DeveloperLicenseFactorySection />
@@ -1279,6 +1295,141 @@ function PromotionsAdminSection() {
             </table>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Catalog Status Management ─── */
+function CatalogStatusManagement() {
+  const { t } = useLanguage();
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [saved, setSaved] = useState("");
+
+  useEffect(() => {
+    setCatalog(getCatalogItems());
+  }, [refreshKey]);
+
+  const handleStatusChange = useCallback((id: string, status: CatalogStatus) => {
+    updateCatalogStatus(id, status);
+    setSaved(`Status updated for item ${id}`);
+    setRefreshKey((k) => k + 1);
+    setTimeout(() => setSaved(""), 2000);
+  }, []);
+
+  const handleRatingChange = useCallback((id: string, rating: number) => {
+    updateCatalogRating(id, rating);
+    setRefreshKey((k) => k + 1);
+  }, []);
+
+  if (catalog.length === 0) {
+    return (
+      <div className="mx-auto mt-10 max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
+        <h2 className="mb-1 text-lg font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>
+          {t("admin.catalog.statusManagement")}
+        </h2>
+        <p className="mb-6 text-sm" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+          {t("admin.catalog.statusDesc")}
+        </p>
+        <div className="rounded-xl border p-6 text-center" style={{ borderColor: "var(--color-border,#334155)" }}>
+          <p className="text-sm" style={{ color: "var(--color-text-muted,#94a3b8)" }}>No catalog items yet. Add products first.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const statusBadge = (status: string | undefined) => {
+    if (!status || status === "live") {
+      return <span className="rounded bg-emerald-900/30 px-2 py-0.5 text-[10px] font-medium text-emerald-400">Live</span>;
+    }
+    if (status === "coming-soon") {
+      return <span className="rounded bg-amber-900/30 px-2 py-0.5 text-[10px] font-medium text-amber-400">Coming Soon</span>;
+    }
+    return <span className="rounded bg-red-900/30 px-2 py-0.5 text-[10px] font-medium text-red-400">Retired</span>;
+  };
+
+  return (
+    <div className="mx-auto mt-10 max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
+      <h2 className="mb-1 text-lg font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>
+        {t("admin.catalog.statusManagement")}
+      </h2>
+      <p className="mb-6 text-sm" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+        {t("admin.catalog.statusDesc")}
+      </p>
+
+      {saved && (
+        <div className="mb-4 rounded-lg border border-emerald-800/50 bg-emerald-900/20 px-4 py-2 text-sm text-emerald-400" role="status" aria-live="polite">
+          {saved}
+        </div>
+      )}
+
+      <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--color-border,#334155)" }}>
+        <table className="w-full text-left text-xs">
+          <thead>
+            <tr className="border-b" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "color-mix(in srgb, var(--color-surface,#1e293b) 30%, transparent)" }}>
+              <th className="px-4 py-3 font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>Title</th>
+              <th className="px-4 py-3 font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>Status</th>
+              <th className="px-4 py-3 font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>Rating</th>
+              <th className="px-4 py-3 font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>Reviews</th>
+              <th className="px-4 py-3 font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {catalog.map((item) => (
+              <tr key={item.id} className="border-b transition-colors hover:bg-white/5" style={{ borderColor: "var(--color-border,#334155)" }}>
+                <td className="max-w-[200px] truncate px-4 py-3 font-medium" style={{ color: "var(--color-text,#f8fafc)" }}>
+                  {item.title}
+                </td>
+                <td className="px-4 py-3">{statusBadge(item.status)}</td>
+                <td className="px-4 py-3">
+                  <input
+                    type="number"
+                    min={0}
+                    max={5}
+                    step={0.1}
+                    value={item.rating ?? 0}
+                    onChange={(e) => handleRatingChange(item.id, parseFloat(e.target.value) || 0)}
+                    className="w-16 rounded border px-2 py-1 text-[10px]"
+                    style={{ backgroundColor: "var(--color-bg,#0f172a)", color: "var(--color-text,#f8fafc)", borderColor: "var(--color-border,#334155)" }}
+                    aria-label={`Rating for ${item.title}`}
+                  />
+                </td>
+                <td className="px-4 py-3" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+                  {item.reviewCount ?? 0}
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleStatusChange(item.id, "live")}
+                      className={`rounded px-2 py-1 text-[10px] font-medium transition-colors ${item.status === "live" || !item.status ? "bg-emerald-900/30 text-emerald-400" : "text-gray-500 hover:text-emerald-400"}`}
+                      aria-label={`Set ${item.title} to Live`}
+                    >
+                      Live
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleStatusChange(item.id, "coming-soon")}
+                      className={`rounded px-2 py-1 text-[10px] font-medium transition-colors ${item.status === "coming-soon" ? "bg-amber-900/30 text-amber-400" : "text-gray-500 hover:text-amber-400"}`}
+                      aria-label={`Set ${item.title} to Coming Soon`}
+                    >
+                      Coming
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleStatusChange(item.id, "retired")}
+                      className={`rounded px-2 py-1 text-[10px] font-medium transition-colors ${item.status === "retired" ? "bg-red-900/30 text-red-400" : "text-gray-500 hover:text-red-400"}`}
+                      aria-label={`Set ${item.title} to Retired`}
+                    >
+                      Retire
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

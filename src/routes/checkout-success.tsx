@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { createFileRoute, Link, useSearch } from "@tanstack/react-router";
 import { useLanguage } from "~/components/LanguageProvider";
 import { completeCheckout } from "~/data/stripeCheckout";
+import { CheckoutUpsells } from "~/components/CheckoutUpsells";
 
 export const Route = createFileRoute("/checkout-success")({
   component: CheckoutSuccessPage,
@@ -94,6 +95,7 @@ function CheckoutSuccessPage() {
           </div>
         </div>
       </div>
+      <CheckoutUpsells />
     </div>
   );
 }

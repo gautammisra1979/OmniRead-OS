@@ -4,7 +4,9 @@ import {
   saveCatalogItem,
   deleteCatalogItem,
   createCatalogItem,
+  updateCatalogStatus,
   type CatalogItem,
+  type CatalogStatus,
 } from "~/data/catalog";
 import { useLanguage } from "~/components/LanguageProvider";
 
@@ -402,6 +404,7 @@ export function CatalogDashboard() {
                   <th className="px-4 py-3 font-medium text-[var(--color-text-muted,#94a3b8)]">{t("admin.catalog.authorLabel")}</th>
                   <th className="px-4 py-3 font-medium text-[var(--color-text-muted,#94a3b8)]">{t("admin.catalog.typeLabel")}</th>
                   <th className="px-4 py-3 font-medium text-[var(--color-text-muted,#94a3b8)]">{t("admin.catalog.priceLabel")}</th>
+                  <th className="px-4 py-3 font-medium text-[var(--color-text-muted,#94a3b8)]">{t("catalog.statusLabel")}</th>
                   <th className="px-4 py-3 font-medium text-[var(--color-text-muted,#94a3b8)]">Date</th>
                   <th className="px-4 py-3 font-medium text-[var(--color-text-muted,#94a3b8)]">Actions</th>
                 </tr>
@@ -413,6 +416,21 @@ export function CatalogDashboard() {
                     <td className="px-4 py-3 text-[var(--color-text-muted,#94a3b8)]">{item.author}</td>
                     <td className="px-4 py-3 text-[var(--color-text-muted,#94a3b8)]">{typeDisplay(item.format)}</td>
                     <td className="px-4 py-3 text-[var(--color-text,#f8fafc)]">${item.price.toFixed(2)}</td>
+                    <td className="px-4 py-3">
+                      <select
+                        value={item.status ?? "live"}
+                        onChange={(e) => {
+                          updateCatalogStatus(item.id, e.target.value as CatalogStatus);
+                          refresh();
+                        }}
+                        className="rounded-lg border border-[var(--color-border,#334155)] bg-[var(--color-surface,#1e293b)] px-2 py-1 text-xs text-[var(--color-text,#f8fafc)]"
+                        aria-label={`Status for ${item.title}`}
+                      >
+                        <option value="live">{t("catalog.statusLive")}</option>
+                        <option value="coming-soon">{t("catalog.statusComingSoon")}</option>
+                        <option value="retired">{t("catalog.statusRetired")}</option>
+                      </select>
+                    </td>
                     <td className="px-4 py-3 text-[var(--color-text-muted,#94a3b8)]">{formatDate(item.createdAt)}</td>
                     <td className="px-4 py-3">
                       <button

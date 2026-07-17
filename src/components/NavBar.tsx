@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import { useBranding } from "~/components/BrandingProvider";
 import { UserControlCenter } from "~/components/UserControlCenter";
+import { InfoModal } from "~/components/DisclaimerModal";
+import { getInfoModals, type InfoModalConfig } from "~/data/membership";
 import { type Locale } from "~/data/translations";
 
 const languages: { code: Locale; label: string }[] = [
@@ -14,11 +16,19 @@ export function NavBar({ onCartOpen, cartCount = 0 }: { onCartOpen?: () => void;
   const [searchQuery, setSearchQuery] = useState("");
   const [langOpen, setLangOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [infoModals, setInfoModals] = useState<InfoModalConfig[]>([]);
+  const [activeInfoModal, setActiveInfoModal] = useState<InfoModalConfig | null>(null);
   const { locale, setLocale, t } = useLanguage();
   const { branding } = useBranding();
 
   const currentLang = languages.find((l) => l.code === locale) ?? languages[0];
   const hasLogo = branding.logoDataUrl && branding.logoDataUrl.trim().length > 0;
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setInfoModals(getInfoModals());
+    }
+  }, []);
 
   return (
     <header
@@ -280,6 +290,20 @@ export function NavBar({ onCartOpen, cartCount = 0 }: { onCartOpen?: () => void;
                 </span>
               )}
             </button>
+            {/* Info Modal links */}
+            {infoModals.map((modal) => (
+              <button
+                key={modal.id}
+                type="button"
+                onClick={() => setActiveInfoModal(modal)}
+                className="rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:opacity-80"
+                style={{ color: "var(--color-text-muted)" }}
+                aria-label={modal.linkLabel}
+              >
+                <span aria-hidden="true" className="mr-1">{modal.icon}</span>
+                {modal.linkLabel}
+              </button>
+            ))}
             <a
               href="/progress"
               className="rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:opacity-80"
@@ -333,6 +357,15 @@ export function NavBar({ onCartOpen, cartCount = 0 }: { onCartOpen?: () => void;
         </div>
       </nav>
       <UserControlCenter open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {activeInfoModal && (
+        <InfoModal
+          id={activeInfoModal.id}
+          title={activeInfoModal.title}
+          content={activeInfoModal.content}
+          icon={activeInfoModal.icon}
+          onClose={() => setActiveInfoModal(null)}
+        />
+      )}
     </header>
   );
 }

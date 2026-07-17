@@ -19,6 +19,9 @@ export interface Product {
   quizFormat?: string[];
   quizHook?: string[];
   quizPace?: string[];
+  status?: "live" | "coming-soon" | "retired";
+  rating?: number;
+  reviewCount?: number;
 }
 
 export const products: Product[] = [
@@ -99,9 +102,14 @@ export function getAllProducts(): Product[] {
       quizFormat: item.quizFormat,
       quizHook: item.quizHook,
       quizPace: item.quizPace,
+      status: item.status,
+      rating: item.rating,
+      reviewCount: item.reviewCount,
     };
   });
-  return [...staticProducts.map(applyDiscount), ...mapped];
+  // Filter retired items, then merge with static products
+  const all = [...staticProducts.map(applyDiscount), ...mapped];
+  return all.filter((p) => p.status !== "retired");
 }
 
 function applyDiscount(product: Product): Product {

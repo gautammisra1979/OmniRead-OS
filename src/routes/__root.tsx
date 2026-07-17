@@ -19,6 +19,9 @@ import { CartDrawer } from "~/components/CartDrawer";
 import { AbandonedCartRecovery } from "~/components/AbandonedCartRecovery";
 import { setActiveReferrer, recordClick } from "~/data/affiliate";
 import { getPromoSettings } from "~/data/promotions";
+import { getStylePresets, applyStylePresets } from "~/data/stylePresets";
+import { AnnouncementBar } from "~/components/AnnouncementBar";
+import { DisclaimerModal } from "~/components/DisclaimerModal";
 import { recordActivity, getCartItemCount } from "~/data/cart";
 import { LicenseGate } from "~/components/LicenseGate";
 import { PrivacyNoticeBanner } from "~/components/PrivacyNoticeBanner";
@@ -74,6 +77,14 @@ function RootComponent() {
   const location = useLocation();
   const router = useRouter();
 
+  // Apply style presets on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const presets = getStylePresets();
+      applyStylePresets(presets);
+    }
+  }, []);
+
   // Idle activity tracker: record user interaction events
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -110,6 +121,7 @@ function RootComponent() {
         <BrandingProvider>
           <RootDocument>
             <NavBar onCartOpen={() => setCartOpen(true)} cartCount={cartCount} />
+            <AnnouncementBar />
             <PromoBanner />
             <main role="main">
               <RouteGuard>
@@ -147,6 +159,7 @@ function RootDocument({ children }: { children: ReactNode }) {
         <FlightRecorderBoot />
         <CloudRestoreModal />
         <PrivacyNoticeBanner />
+        <DisclaimerModal />
         <LicenseGate feature="all" featureName="OmniRead Librarian" featureIcon="👓">
           <AIChatbot />
         </LicenseGate>
@@ -220,6 +233,7 @@ const PREMIUM_ROUTES: Record<string, { feature: string; name: string; icon: stri
   "/progress": { feature: "progress", name: "Progress Hub", icon: "📊" },
   "/affiliate": { feature: "affiliate", name: "Affiliate Portal", icon: "🤝" },
   "/downloads": { feature: "downloads", name: "Download Ledger", icon: "📥" },
+  "/reader": { feature: "product-media", name: "Immersive Reader", icon: "📖" },
 };
 
 function RouteGuard({ children }: { children: ReactNode }) {

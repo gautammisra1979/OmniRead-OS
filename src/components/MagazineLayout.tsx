@@ -1,6 +1,9 @@
 import { useMemo, useRef, type RefObject } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import { getAllProducts, type Product } from "~/data/products";
+import { ComingSoonSection } from "~/components/ComingSoonSection";
+
+const MAX_PER_ROW = 10;
 
 function CarouselRow({
   title,
@@ -150,9 +153,9 @@ export function MagazineLayout() {
   const { t } = useLanguage();
   const allProducts = useMemo(() => getAllProducts(), []);
 
-  const ebooks = allProducts.filter((p) => p.type === "ebook");
-  const audiobooks = allProducts.filter((p) => p.type === "audiobook");
-  const videos = allProducts.filter((p) => p.type === "video");
+  const ebooks = allProducts.filter((p) => p.type === "ebook" && p.status !== "coming-soon").slice(0, MAX_PER_ROW);
+  const audiobooks = allProducts.filter((p) => p.type === "audiobook" && p.status !== "coming-soon").slice(0, MAX_PER_ROW);
+  const videos = allProducts.filter((p) => p.type === "video" && p.status !== "coming-soon").slice(0, MAX_PER_ROW);
 
   return (
     <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
@@ -183,6 +186,8 @@ export function MagazineLayout() {
         title={t("admin.analytics.typeVideo") ?? "Video Courses"}
         products={videos}
       />
+
+      <ComingSoonSection />
     </section>
   );
 }
