@@ -1072,7 +1072,7 @@ export function EvaluationScaffold() {
             <h3 className="demo-heading text-lg font-bold pr-8">{displayedInfoModal.title}</h3>
             <p className="text-sm mt-3 opacity-80 leading-relaxed">{displayedInfoModal.body}</p>
             <p className="text-xs mt-4 pt-3 border-t border-black/10 opacity-50 italic">
-              Evaluation Mode — this action is not wired to a live data layer yet.
+              Store activation is pending site owner review. Coming soon.
             </p>
             <div className="mt-4 flex gap-2">
               <button
