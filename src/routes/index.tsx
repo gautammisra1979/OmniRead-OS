@@ -5,6 +5,6 @@ export const Route = createFileRoute("/")({
   component: HomeComponent,
 });
 
-function HomeComponent() {
+export default function HomeComponent() {
   return <LayoutMatrix />;
 }
