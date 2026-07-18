@@ -5,3 +5,4 @@ v1.0.6 - Complete Recompile of Routes and Layouts
 v1.0.6 - Updated index.tsx
 v1.0.7 - Step 25 Demo Mode rebuild + deploy-gate fix
 v1.0.8 - Fix production stylesheet link
+v1.0.9 - Step 25 visual-language pass (rounded corners, shadows, slow fades, Kindle-frame lines, slow scroll+reveal)
