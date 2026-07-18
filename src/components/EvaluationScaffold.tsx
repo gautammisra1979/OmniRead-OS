@@ -1,4 +1,81 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import type { ReactNode } from "react";
+
+// ---------------------------------------------------------------------------
+// Visual-language pass helpers — slow fade in/out for popups & overlays,
+// a slower "swipe-like" scroll to section anchors, and a scroll-reveal
+// fade-in for shelves. (Site Review 2, points 2/2a, 4a, 6, 11.)
+// ---------------------------------------------------------------------------
+
+/** Keeps a conditionally-shown overlay mounted long enough to fade out
+ *  before it's removed from the DOM, instead of vanishing instantly. */
+function useFadeMount(open: boolean, duration = 320) {
+  const [mounted, setMounted] = useState(open);
+  const [show, setShow] = useState(open);
+
+  useEffect(() => {
+    let raf = 0;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    if (open) {
+      setMounted(true);
+      raf = requestAnimationFrame(() => setShow(true));
+    } else {
+      setShow(false);
+      timeout = setTimeout(() => setMounted(false), duration);
+    }
+    return () => {
+      cancelAnimationFrame(raf);
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [open, duration]);
+
+  return { mounted, show };
+}
+
+/** Slower, deliberate scroll to a section — reads more like a page swipe
+ *  than the browser's default (fast) smooth-scroll. */
+function slowScrollTo(id: string, duration = 900) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const startY = window.scrollY;
+  const targetY = el.getBoundingClientRect().top + window.scrollY - 24;
+  const distance = targetY - startY;
+  const start = performance.now();
+
+  const ease = (t: number) => 1 - Math.pow(1 - t, 3); // ease-out cubic
+
+  function step(now: number) {
+    const elapsed = now - start;
+    const t = Math.min(1, elapsed / duration);
+    window.scrollTo(0, startY + distance * ease(t));
+    if (t < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+/** Fades + slides a section in the first time it scrolls into view. */
+function useScrollReveal<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [revealed, setRevealed] = useState(false);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setRevealed(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.15 },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  return { ref, revealed };
+}
 
 /* ============================================================================
  * EvaluationScaffold — Demo Mode
@@ -46,8 +123,8 @@ const STYLE_PRESETS: Record<
   kindlePaperwhite: {
     name: "Kindle Paperwhite",
     bg: "bg-[#fdfdfd]",
-    card: "bg-[#fdfdfd] border border-neutral-900",
-    radius: "rounded-none",
+    card: "bg-[#fdfdfd] border border-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.07)]",
+    radius: "rounded-2xl",
     iconTone: "text-neutral-900",
   },
 };
@@ -232,6 +309,28 @@ function Stars({ rating }: { rating: number }) {
   );
 }
 
+function RevealSection({
+  id,
+  ariaLabel,
+  children,
+}: {
+  id: string;
+  ariaLabel: string;
+  children: ReactNode;
+}) {
+  const { ref, revealed } = useScrollReveal<HTMLElement>();
+  return (
+    <section
+      id={id}
+      aria-label={ariaLabel}
+      ref={ref}
+      className={`transition-all duration-700 ease-out ${revealed ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"}`}
+    >
+      {children}
+    </section>
+  );
+}
+
 export function EvaluationScaffold() {
   // --- Demo/eval controls (not a real storefront feature — lets a reviewer
   // preview how Step 25's Style Customizer will reskin the whole page) ---
@@ -245,6 +344,11 @@ export function EvaluationScaffold() {
   // --- Generic "not wired up yet" modal, used by anything that needs a
   // real backend/data layer (checkout, sign in, membership, etc.) ---
   const [infoModal, setInfoModal] = useState<{ title: string; body: string } | null>(null);
+  const infoModalFade = useFadeMount(infoModal !== null);
+  const [displayedInfoModal, setDisplayedInfoModal] = useState<{ title: string; body: string } | null>(null);
+  useEffect(() => {
+    if (infoModal) setDisplayedInfoModal(infoModal);
+  }, [infoModal]);
 
   // --- Announcement bar ---
   const [announceIdx, setAnnounceIdx] = useState(0);
@@ -272,12 +376,18 @@ export function EvaluationScaffold() {
   // --- Product overlay (Kindle-style order page) ---
   const [activeBook, setActiveBook] = useState<MockBook | null>(null);
   const [coverFlipped, setCoverFlipped] = useState(false);
+  const productOverlayFade = useFadeMount(activeBook !== null);
+  const [displayedBook, setDisplayedBook] = useState<MockBook | null>(null);
+  useEffect(() => {
+    if (activeBook) setDisplayedBook(activeBook);
+  }, [activeBook]);
 
   // --- Immersive reader HUD ---
   const [readerOpen, setReaderOpen] = useState(false);
   const [readerTheme, setReaderTheme] = useState<"day" | "night" | "sepia">("day");
   const [hudVisible, setHudVisible] = useState(true);
   const [librarianOpen, setLibrarianOpen] = useState(false);
+  const librarianFade = useFadeMount(librarianOpen);
   const hudIdleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const resetHudIdleTimer = useCallback(() => {
@@ -318,6 +428,15 @@ export function EvaluationScaffold() {
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Merriweather:wght@400;700&family=Inter:wght@400;600;700&family=Lora:ital@0;1&display=swap');
         .demo-heading { font-family: ${type.heading}; }
       `}</style>
+
+      {/* Kindle-device frame: a thin margined border running the height of
+          the screen, giving the page the feel of a device bezel. Desktop /
+          tablet only — on mobile the phone itself is the frame, so this is
+          reserved for the Reader HUD instead (see below). */}
+      <div
+        aria-hidden="true"
+        className="hidden md:block fixed inset-3 lg:inset-4 rounded-2xl border border-black/15 pointer-events-none z-30"
+      />
 
       {/* ================= 1. TOP ANNOUNCEMENT BAR ================= */}
       <div className="w-full bg-black text-white text-xs sm:text-sm select-none">
@@ -448,10 +567,10 @@ export function EvaluationScaffold() {
             className="hidden md:flex items-center gap-6 h-11 text-sm font-semibold border-t border-black/10"
             aria-label="Browse"
           >
-            <a href="#bestsellers" className="hover:underline">Bestsellers</a>
-            <a href="#recommended" className="hover:underline">Recommended</a>
-            <a href="#latest" className="hover:underline">Latest</a>
-            <a href="#coming-soon" className="hover:underline">Coming Soon</a>
+            <a href="#bestsellers" onClick={(e) => { e.preventDefault(); slowScrollTo("bestsellers"); }} className="hover:underline">Bestsellers</a>
+            <a href="#recommended" onClick={(e) => { e.preventDefault(); slowScrollTo("recommended"); }} className="hover:underline">Recommended</a>
+            <a href="#latest" onClick={(e) => { e.preventDefault(); slowScrollTo("latest"); }} className="hover:underline">Latest</a>
+            <a href="#coming-soon" onClick={(e) => { e.preventDefault(); slowScrollTo("coming-soon"); }} className="hover:underline">Coming Soon</a>
 
             {(["books", "audio", "video"] as const).map((menu) => (
               <div
@@ -463,32 +582,36 @@ export function EvaluationScaffold() {
                 <button type="button" className="flex items-center gap-1 hover:underline cursor-pointer capitalize">
                   {menu} <Icon path={ICONS.chevronDown} className="w-3.5 h-3.5" />
                 </button>
-                {megaOpen === menu && (
-                  <div
-                    className={`absolute left-1/2 -translate-x-1/2 top-full mt-0 w-[560px] p-6 grid grid-cols-3 gap-6 z-50 ${style.card} ${style.radius}`}
-                    onMouseEnter={() => openMega(menu)}
-                    onMouseLeave={closeMegaSoon}
-                  >
-                    {MEGA_MENU[menu].columns.map((col) => (
-                      <div key={col.heading}>
-                        <p className="text-xs uppercase tracking-wider font-bold opacity-60 mb-2">{col.heading}</p>
-                        <ul className="space-y-1.5 text-sm">
-                          {col.items.map((item) => (
-                            <li key={item}>
-                              <button
-                                type="button"
-                                onClick={() => showComingSoon(item, `Filtered ${menu} results for "${item}" will render here once the catalog data layer is connected.`)}
-                                className="hover:underline cursor-pointer text-left"
-                              >
-                                {item}
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div
+                  aria-hidden={megaOpen !== menu}
+                  className={`absolute left-1/2 -translate-x-1/2 top-full w-[560px] p-6 grid grid-cols-3 gap-6 z-50 transition-all duration-300 ${style.card} ${style.radius} ${
+                    megaOpen === menu
+                      ? "mt-2 opacity-100 pointer-events-auto"
+                      : "mt-0 opacity-0 pointer-events-none"
+                  }`}
+                  onMouseEnter={() => openMega(menu)}
+                  onMouseLeave={closeMegaSoon}
+                >
+                  {MEGA_MENU[menu].columns.map((col) => (
+                    <div key={col.heading}>
+                      <p className="text-xs uppercase tracking-wider font-bold opacity-60 mb-2">{col.heading}</p>
+                      <ul className="space-y-1.5 text-sm">
+                        {col.items.map((item) => (
+                          <li key={item}>
+                            <button
+                              type="button"
+                              tabIndex={megaOpen === menu ? 0 : -1}
+                              onClick={() => showComingSoon(item, `Filtered ${menu} results for "${item}" will render here once the catalog data layer is connected.`)}
+                              className="hover:underline cursor-pointer text-left"
+                            >
+                              {item}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
 
@@ -543,7 +666,7 @@ export function EvaluationScaffold() {
               type="button"
               onClick={() =>
                 HERO_SLIDES[heroIdx].cta === "Browse Products"
-                  ? document.getElementById("bestsellers")?.scrollIntoView({ behavior: "smooth" })
+                  ? slowScrollTo("bestsellers")
                   : showComingSoon(HERO_SLIDES[heroIdx].cta, "This action will connect to membership / challenge sign-up once the data layer is live.")
               }
               className={`px-6 py-2.5 text-sm font-bold bg-black text-white ${style.radius} hover:opacity-85 cursor-pointer`}
@@ -609,7 +732,7 @@ export function EvaluationScaffold() {
       {/* ================= 5. SHELVES ================= */}
       <main className="flex-grow w-full max-w-7xl mx-auto px-4 py-14 space-y-16">
         {SHELVES.map((shelf) => (
-          <section key={shelf.id} id={shelf.id} aria-label={shelf.label}>
+          <RevealSection key={shelf.id} id={shelf.id} ariaLabel={shelf.label}>
             <div className="flex items-center justify-between mb-5">
               <h2 className="demo-heading text-xl sm:text-2xl font-bold">{shelf.label}</h2>
               <button
@@ -634,7 +757,7 @@ export function EvaluationScaffold() {
                 />
               ))}
             </div>
-          </section>
+          </RevealSection>
         ))}
       </main>
 
@@ -688,15 +811,15 @@ export function EvaluationScaffold() {
       </div>
 
       {/* ================= PRODUCT OVERLAY (Kindle-style order page) ================= */}
-      {activeBook && (
+      {productOverlayFade.mounted && displayedBook && (
         <div
-          className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50"
+          className={`fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 transition-opacity duration-300 ${productOverlayFade.show ? "opacity-100" : "opacity-0"}`}
           role="dialog"
           aria-modal="true"
           onClick={() => setActiveBook(null)}
         >
           <div
-            className={`w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 sm:p-8 relative ${style.card} ${style.radius} bg-white`}
+            className={`w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 sm:p-8 relative ${style.card} ${style.radius} bg-white transition-all duration-300 ${productOverlayFade.show ? "opacity-100 scale-100" : "opacity-0 scale-95"}`}
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -720,7 +843,7 @@ export function EvaluationScaffold() {
                     style={{ transform: coverFlipped ? "rotateY(180deg)" : "rotateY(0deg)" }}
                   >
                     <div className="absolute inset-0 flex items-center justify-center bg-neutral-800 text-white text-center p-4 [backface-visibility:hidden]">
-                      <span className="demo-heading font-bold">{activeBook.title}</span>
+                      <span className="demo-heading font-bold">{displayedBook.title}</span>
                     </div>
                     <div
                       className="absolute inset-0 flex items-center justify-center bg-neutral-100 text-center p-4 text-xs [backface-visibility:hidden]"
@@ -741,11 +864,11 @@ export function EvaluationScaffold() {
 
               {/* Middle: identity */}
               <div className="min-w-0">
-                <h3 className="demo-heading text-2xl font-bold">{activeBook.title}</h3>
-                <p className="text-sm opacity-70 mt-1">by {activeBook.author}</p>
+                <h3 className="demo-heading text-2xl font-bold">{displayedBook.title}</h3>
+                <p className="text-sm opacity-70 mt-1">by {displayedBook.author}</p>
                 <div className="flex items-center gap-2 mt-2">
-                  <Stars rating={activeBook.rating} />
-                  <span className="text-xs opacity-60">{activeBook.ratingCount} ratings</span>
+                  <Stars rating={displayedBook.rating} />
+                  <span className="text-xs opacity-60">{displayedBook.ratingCount} ratings</span>
                 </div>
                 <div className="flex flex-wrap gap-3 mt-4 text-xs opacity-70">
                   <span>Language: English</span>
@@ -780,10 +903,10 @@ export function EvaluationScaffold() {
                     {FORMATS.map((f) => (
                       <label key={f} className="flex items-center justify-between text-sm border border-black/15 px-3 py-2 cursor-pointer">
                         <span className="flex items-center gap-2">
-                          <input type="radio" name="format" defaultChecked={f === activeBook.format} />
+                          <input type="radio" name="format" defaultChecked={f === displayedBook.format} />
                           {f}
                         </span>
-                        <span className="font-bold">${activeBook.price}</span>
+                        <span className="font-bold">${displayedBook.price}</span>
                       </label>
                     ))}
                   </div>
@@ -796,7 +919,7 @@ export function EvaluationScaffold() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => openReader(activeBook)}
+                    onClick={() => openReader(displayedBook)}
                     className="w-full mt-2 py-2.5 border border-black text-sm font-bold hover:bg-black hover:text-white transition-colors cursor-pointer"
                   >
                     Read Sample
@@ -816,6 +939,13 @@ export function EvaluationScaffold() {
             setHudVisible((v) => !v);
           }}
         >
+          {/* Kindle-device frame — present on mobile here specifically,
+              since the reading screen is where the "holding a book" feel
+              earns its keep (unlike the storefront, where it costs width). */}
+          <div
+            aria-hidden="true"
+            className="fixed inset-2 sm:inset-3 rounded-2xl border border-current/15 pointer-events-none z-[81]"
+          />
           <div className="max-w-2xl mx-auto h-full px-8 py-16 overflow-y-auto text-lg leading-relaxed" style={{ fontFamily: type.body }}>
             <p className="demo-heading text-2xl font-bold mb-6">{activeBook.title}</p>
             <p className="mb-4">
@@ -878,13 +1008,13 @@ export function EvaluationScaffold() {
           </div>
 
           {/* Librarian chat console */}
-          {librarianOpen && (
+          {librarianFade.mounted && (
             <div
-              className="fixed inset-0 flex items-end sm:items-center justify-center sm:justify-end p-0 sm:p-6 backdrop-blur-md bg-black/10 origin-top-right"
+              className={`fixed inset-0 flex items-end sm:items-center justify-center sm:justify-end p-0 sm:p-6 bg-black/10 origin-top-right transition-[backdrop-filter,background-color] duration-300 ${librarianFade.show ? "backdrop-blur-md" : "backdrop-blur-none"}`}
               onClick={() => setLibrarianOpen(false)}
             >
               <div
-                className="w-full sm:w-96 h-[70vh] sm:h-[520px] bg-white text-black flex flex-col shadow-2xl transition-all duration-300 ease-in-out scale-100 opacity-100 origin-top-right"
+                className={`w-full sm:w-96 h-[70vh] sm:h-[520px] ${style.radius} sm:rounded-tl-2xl bg-white text-black flex flex-col shadow-2xl transition-all duration-300 ease-in-out origin-top-right ${librarianFade.show ? "scale-100 opacity-100" : "scale-95 opacity-0"}`}
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
@@ -920,15 +1050,15 @@ export function EvaluationScaffold() {
       )}
 
       {/* ================= "Coming soon" info modal ================= */}
-      {infoModal && (
+      {infoModalFade.mounted && displayedInfoModal && (
         <div
-          className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/40"
+          className={`fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/40 transition-opacity duration-300 ${infoModalFade.show ? "opacity-100" : "opacity-0"}`}
           role="dialog"
           aria-modal="true"
           onClick={() => setInfoModal(null)}
         >
           <div
-            className={`w-full max-w-md p-6 relative bg-white ${style.card} ${style.radius}`}
+            className={`w-full max-w-md p-6 relative bg-white ${style.card} ${style.radius} transition-all duration-300 ${infoModalFade.show ? "opacity-100 scale-100" : "opacity-0 scale-95"}`}
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -939,8 +1069,8 @@ export function EvaluationScaffold() {
             >
               <Icon path={ICONS.close} className="w-4 h-4" />
             </button>
-            <h3 className="demo-heading text-lg font-bold pr-8">{infoModal.title}</h3>
-            <p className="text-sm mt-3 opacity-80 leading-relaxed">{infoModal.body}</p>
+            <h3 className="demo-heading text-lg font-bold pr-8">{displayedInfoModal.title}</h3>
+            <p className="text-sm mt-3 opacity-80 leading-relaxed">{displayedInfoModal.body}</p>
             <p className="text-xs mt-4 pt-3 border-t border-black/10 opacity-50 italic">
               Evaluation Mode — this action is not wired to a live data layer yet.
             </p>
@@ -993,15 +1123,16 @@ function ProductCard({
     >
       <div className="aspect-[3/4] w-full bg-neutral-800 flex items-center justify-center text-white text-center p-3 relative overflow-hidden">
         <span className="demo-heading text-sm font-bold">{book.title}</span>
-        {hover && (
-          <div
-            className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2 text-xs font-bold"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button type="button" onClick={onOpen} className="px-3 py-1.5 bg-white text-black cursor-pointer">Quick Preview</button>
-            <button type="button" onClick={onAddToCart} className="px-3 py-1.5 border border-white text-white cursor-pointer">+ Add to Cart</button>
-          </div>
-        )}
+        <div
+          aria-hidden={!hover}
+          className={`absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2 text-xs font-bold transition-opacity duration-300 ${
+            hover ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+          }`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button type="button" tabIndex={hover ? 0 : -1} onClick={onOpen} className="px-3 py-1.5 bg-white text-black shadow-sm cursor-pointer">Quick Preview</button>
+          <button type="button" tabIndex={hover ? 0 : -1} onClick={onAddToCart} className="px-3 py-1.5 border border-white text-white cursor-pointer">+ Add to Cart</button>
+        </div>
       </div>
       <div className="p-3">
         <span className="inline-block text-[10px] font-bold uppercase tracking-wide border border-black/30 px-1.5 py-0.5 mb-1.5">
