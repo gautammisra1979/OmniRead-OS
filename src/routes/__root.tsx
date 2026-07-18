@@ -20,6 +20,7 @@ function RootComponent() {
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>OmniRead OS — Premium Bookstore Engine</title>
+        <link rel="stylesheet" href={appCss} />
         <HeadContent />
       </head>
       <body className="bg-white text-black min-h-screen antialiased m-0 p-0">
