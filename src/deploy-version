@@ -4,3 +4,4 @@ v1.0.4 - Activating Core Route Matrix Link
 v1.0.6 - Complete Recompile of Routes and Layouts
 v1.0.6 - Updated index.tsx
 v1.0.7 - Step 25 Demo Mode rebuild + deploy-gate fix
+v1.0.8 - Fix production stylesheet link
