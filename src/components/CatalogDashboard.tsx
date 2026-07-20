@@ -1,13 +1,21 @@
 import { useState, useCallback, useEffect, useRef, type DragEvent, type ChangeEvent } from "react";
 import {
-  getCatalogItems,
+  // Manual "Publish" form still writes base64 cover/media via these —
+  // unchanged, and deliberately NOT migrated yet. That path needs Vercel
+  // Blob (Step 26 Phase 2, item 3) before it can write cover_url/media_url;
+  // wiring it to createCatalogItem below would silently drop the uploaded
+  // file. See src/db/queries.ts for the full note.
+  createCatalogItem as createCatalogItemLocal,
   saveCatalogItem,
-  deleteCatalogItem,
-  createCatalogItem,
-  updateCatalogStatus,
   type CatalogItem,
   type CatalogStatus,
 } from "~/data/catalog";
+import {
+  getCatalogItems,
+  deleteCatalogItem,
+  updateCatalogStatus,
+  createCatalogItem,
+} from "~/db/queries";
 import { useLanguage } from "~/components/LanguageProvider";
 
 function formatFileSize(bytes: number): string {
@@ -38,7 +46,12 @@ export function CatalogDashboard() {
   const mediaInputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(() => {
-    setItems(getCatalogItems());
+    // DB-backed (Step 26 Phase 2, POC #2) — was a synchronous localStorage
+    // read. Note: coverImage/mediaFile will read as null for any row until
+    // Vercel Blob wiring (Phase 2, item 3) lands.
+    getCatalogItems()
+      .then(setItems)
+      .catch(() => setItems([]));
   }, []);
 
   useEffect(() => {
@@ -103,9 +116,18 @@ export function CatalogDashboard() {
     author.trim().length > 0 &&
     parseFloat(price) > 0;
 
+  // PAUSED pending Vercel Blob wiring (Step 26 Phase 2, item 3). This form
+  // still builds base64 cover/media via FileReader, and the new schema has
+  // no column to put base64 in — only cover_url/media_url. Wiring this to
+  // the DB-backed createCatalogItem today would either reject the payload
+  // or silently discard the file. Left on the old localStorage path
+  // (createCatalogItemLocal + saveCatalogItem) and disabled below with an
+  // explanation, rather than left callable but quietly broken: since
+  // refresh() now reads from the DB, an item saved only to localStorage
+  // here would never appear in the table beneath it.
   const handlePublish = () => {
     if (!isFormValid) return;
-    const item = createCatalogItem({
+    const item = createCatalogItemLocal({
       title: title.trim(),
       author: author.trim(),
       price: parseFloat(price),
@@ -116,7 +138,6 @@ export function CatalogDashboard() {
       mediaFile: { name: mediaName, dataUrl: mediaDataUrl },
     });
     saveCatalogItem(item);
-    refresh();
     resetForm();
     showToast(t("admin.catalog.published"));
 
@@ -129,8 +150,12 @@ export function CatalogDashboard() {
   };
 
   const handleDelete = (id: string) => {
-    deleteCatalogItem(id);
-    refresh();
+    // DB-backed (Step 26 Phase 2, POC #2) — was a synchronous localStorage
+    // write. refresh() is deliberately chained after the delete resolves,
+    // not fired in parallel, so the table doesn't briefly show a stale row.
+    deleteCatalogItem({ data: id })
+      .then(refresh)
+      .catch(() => showToast("Delete failed — check connection and retry."));
   };
 
   const formatDate = (iso: string) => {
@@ -420,8 +445,12 @@ export function CatalogDashboard() {
                       <select
                         value={item.status ?? "live"}
                         onChange={(e) => {
-                          updateCatalogStatus(item.id, e.target.value as CatalogStatus);
-                          refresh();
+                          const status = e.target.value as CatalogStatus;
+                          // DB-backed (Step 26 Phase 2, POC #2) — chained
+                          // after resolution, same reasoning as handleDelete.
+                          updateCatalogStatus({ data: { id: item.id, status } })
+                            .then(refresh)
+                            .catch(() => showToast("Status update failed — check connection and retry."));
                         }}
                         className="rounded-lg border border-[var(--color-border,#334155)] bg-[var(--color-surface,#1e293b)] px-2 py-1 text-xs text-[var(--color-text,#f8fafc)]"
                         aria-label={`Status for ${item.title}`}
@@ -557,7 +586,7 @@ function CSVBulkImport({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const processCSV = useCallback(
-    (text: string) => {
+    async (text: string) => {
       const rows = parseCSV(text);
       const errors: ValidationError[] = [];
       let successCount = 0;
@@ -636,31 +665,40 @@ function CSVBulkImport({
             return val.split(",").map((s) => s.trim()).filter(Boolean);
           };
 
-          const item = createCatalogItem({
-            title: row.title || "Untitled",
-            author: row.creator || "Unknown",
-            price: parseFloat(row.price),
-            type: internalType,
-            format: internalFormat,
-            description: "",
-            coverImage: row.cover_url || null,
-            mediaFile: { name: contentName, dataUrl: row.content_url || null },
-            quizMood: parseQuizTags(row.quiz_mood),
-            quizFormat: parseQuizTags(row.quiz_format),
-            quizHook: parseQuizTags(row.quiz_hook),
-            quizPace: parseQuizTags(row.quiz_pace),
-          });
+          // DB-backed (Step 26 Phase 2, POC #2). Unlike the manual publish
+          // form, CSV rows already carry cover_url/content_url as plain
+          // URLs (not base64 file uploads) — so this path isn't blocked on
+          // Vercel Blob wiring and can write straight to Postgres today.
+          // Awaited (not fire-and-forget) so successCount/errors and the
+          // final onImportComplete() reflect what actually landed in the DB.
+          try {
+            const item = await createCatalogItem({
+              data: {
+                title: row.title || "Untitled",
+                author: row.creator || "Unknown",
+                price: parseFloat(row.price),
+                type: internalType,
+                format: internalFormat,
+                description: "",
+                coverUrl: row.cover_url || null,
+                mediaName: contentName,
+                mediaUrl: row.content_url || null,
+                quizMood: parseQuizTags(row.quiz_mood),
+                quizFormat: parseQuizTags(row.quiz_format),
+                quizHook: parseQuizTags(row.quiz_hook),
+                quizPace: parseQuizTags(row.quiz_pace),
+              },
+            });
 
-          saveCatalogItem(item);
-
-          // Dispatch custom event matching existing pattern
-          window.dispatchEvent(
-            new CustomEvent("omnimeda-product-added", {
-              detail: { title: item.title, price: item.price, type: item.type },
-            }),
-          );
-
-          successCount++;
+            window.dispatchEvent(
+              new CustomEvent("omnimeda-product-added", {
+                detail: { title: item.title, price: item.price, type: item.type },
+              }),
+            );
+            successCount++;
+          } catch {
+            errors.push({ row: rowNum, message: "Failed to save to database." });
+          }
         }
       }
 

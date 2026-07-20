@@ -3,7 +3,8 @@ import { createFileRoute, useParams, Link } from "@tanstack/react-router";
 import { useLanguage } from "~/components/LanguageProvider";
 import { LicenseGate } from "~/components/LicenseGate";
 import { getAllProducts, type Product } from "~/data/products";
-import { getCatalogItems, type CatalogItem } from "~/data/catalog";
+import { type CatalogItem } from "~/data/catalog";
+import { getCatalogItemById } from "~/db/queries";
 import { MediaPlayer } from "~/components/MediaPlayer";
 import { CrossSellGrid } from "~/components/CrossSellGrid";
 import { CommentTree } from "~/components/CommentTree";
@@ -47,17 +48,29 @@ function RouteComponent() {
   const [addedToCart, setAddedToCart] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     const all = getAllProducts();
     const found = all.find((p) => p.id === productId) ?? null;
     setProduct(found);
-
-    const catItems = getCatalogItems();
-    const catFound = catItems.find((c) => c.id === productId) ?? null;
-    setCatalogItem(catFound);
-    
     if (found) {
       setSelectedFormat(found.format);
     }
+
+    // DB-backed (Step 26 Phase 2, POC #1) — was a synchronous localStorage
+    // read via getCatalogItems().find(...). Note: coverImage/mediaFile will
+    // be null on any row until Vercel Blob wiring (Phase 2, item 3) lands.
+    getCatalogItemById({ data: productId })
+      .then((catFound) => {
+        if (!cancelled) setCatalogItem(catFound);
+      })
+      .catch(() => {
+        if (!cancelled) setCatalogItem(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [productId]);
 
   const handleAddToCart = () => {
