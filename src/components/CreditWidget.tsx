@@ -1,20 +1,27 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { getWallet, addCredits, getCostPer1K } from "~/data/wallet";
+import { getWallet, addCredits, getCostPer1K, type WalletState } from "~/data/wallet";
 
 const REFILL_AMOUNT = 100;
+
+const EMPTY_WALLET: WalletState = { credits: 0, totalPurchased: 0, totalConsumed: 0, refillPrice: 3.99 };
 
 export function CreditWidget() {
   const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
-  const [credits, setCredits] = useState(getWallet().credits);
-  const [costPer1K, setCostPer1K] = useState(getCostPer1K());
+  const [credits, setCredits] = useState(0);
+  const [costPer1K, setCostPer1K] = useState(0.01);
+  const [wallet, setWallet] = useState<WalletState>(EMPTY_WALLET);
 
   useEffect(() => {
     const handler = () => {
-      setCredits(getWallet().credits);
-      setCostPer1K(getCostPer1K());
+      getWallet().then((w) => {
+        setWallet(w);
+        setCredits(w.credits);
+      });
+      getCostPer1K().then(setCostPer1K);
     };
+    handler();
     window.addEventListener("wallet-updated", handler);
     return () => window.removeEventListener("wallet-updated", handler);
   }, []);
@@ -22,12 +29,9 @@ export function CreditWidget() {
   const handleRefill = useCallback(() => {
     setLoading(true);
     setTimeout(() => {
-      addCredits(REFILL_AMOUNT);
-      setLoading(false);
+      addCredits(REFILL_AMOUNT).then(() => setLoading(false));
     }, 1500);
   }, []);
-
-  const wallet = getWallet();
 
   return (
     <div

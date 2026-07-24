@@ -2,12 +2,9 @@ import { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import { getPromoSettings, savePromoSettings } from "~/data/promotions";
 import {
-  getCart,
   checkCartAbandoned,
   redeemRecoveryCoupon,
   dismissRecovery,
-  getRecoveryCouponCode,
-  getRecoveryDiscountPercent,
   type CartState,
 } from "~/data/cart";
 
@@ -24,10 +21,12 @@ export function AbandonedCartRecovery({ onOpenCart }: AbandonedCartRecoveryProps
   // Check for abandoned cart on mount and periodically
   useEffect(() => {
     if (typeof window === "undefined") return;
+    let cancelled = false;
 
-    const check = () => {
+    const check = async () => {
       if (dismissed) return;
-      const checkedCart = checkCartAbandoned();
+      const checkedCart = await checkCartAbandoned();
+      if (cancelled) return;
       if (checkedCart.isAbandoned && checkedCart.recoveryOffered && !checkedCart.recoveryRedeemed) {
         setCart(checkedCart);
         setShow(true);
@@ -41,10 +40,18 @@ export function AbandonedCartRecovery({ onOpenCart }: AbandonedCartRecoveryProps
     const interval = setInterval(check, 60000);
 
     return () => {
+      cancelled = true;
       clearTimeout(timer);
       clearInterval(interval);
     };
   }, [dismissed]);
+
+  // Coupon/discount are derived from the cart snapshot already fetched
+  // above (checkCartAbandoned), rather than fetched again here — both
+  // getRecoveryCouponCode/getRecoveryDiscountPercent are now async and this
+  // value is needed synchronously during render.
+  const couponCode = cart && cart.recoveryOffered && !cart.recoveryRedeemed && cart.recoveryCoupon ? cart.recoveryCoupon : null;
+  const discountPercent = cart && cart.recoveryOffered && !cart.recoveryRedeemed && cart.recoveryDiscount ? cart.recoveryDiscount : null;
 
   const handleRedeem = useCallback(() => {
     // Inject into the Promotions module so checkout prices reflect the discount
@@ -56,22 +63,21 @@ export function AbandonedCartRecovery({ onOpenCart }: AbandonedCartRecoveryProps
       activeCouponCode: couponCode || "WELCOME_BACK",
       globalDiscountValue: discountPercent || 15,
     });
-    const updated = redeemRecoveryCoupon();
-    setCart(updated);
-    setShow(false);
-    onOpenCart();
+    redeemRecoveryCoupon().then((updated) => {
+      setCart(updated);
+      setShow(false);
+      onOpenCart();
+    });
   }, [onOpenCart, couponCode, discountPercent]);
 
   const handleDismiss = useCallback(() => {
-    dismissRecovery();
-    setShow(false);
-    setDismissed(true);
+    dismissRecovery().then(() => {
+      setShow(false);
+      setDismissed(true);
+    });
   }, []);
 
   if (!show || !cart || cart.items.length === 0) return null;
-
-  const couponCode = getRecoveryCouponCode();
-  const discountPercent = getRecoveryDiscountPercent();
 
   return (
     <div

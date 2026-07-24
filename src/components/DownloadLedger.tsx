@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import {
   type DownloadRecord,
-  seedDemoDownloads,
   getDownloads,
+  incrementDownloadCount,
 } from "~/data/downloads";
 import { RefundForm } from "~/components/RefundForm";
 
@@ -262,9 +262,8 @@ export function DownloadLedger() {
   const [toastVisible, setToastVisible] = useState(false);
   const [refundingRecord, setRefundingRecord] = useState<DownloadRecord | null>(null);
 
-  const refresh = useCallback(() => {
-    seedDemoDownloads();
-    setRecords(getDownloads());
+  const refresh = useCallback(async () => {
+    setRecords(await getDownloads());
   }, []);
 
   useEffect(() => {
@@ -280,21 +279,21 @@ export function DownloadLedger() {
     setToastVisible(false);
   }, []);
 
-  const handleDownload = (record: DownloadRecord) => {
-    // Update localStorage
-    const all = getDownloads();
-    const found = all.find((r) => r.id === record.id);
-    if (found) {
-      found.downloadCount += 1;
-      found.lastDownloadedAt = new Date().toISOString();
-      localStorage.setItem("omnimedos_downloads", JSON.stringify(all));
-      setRecords(all);
+  const handleDownload = async (record: DownloadRecord) => {
+    await incrementDownloadCount(record.id);
+    setRecords((prev) =>
+      prev.map((r) =>
+        r.id === record.id
+          ? { ...r, downloadCount: r.downloadCount + 1, lastDownloadedAt: new Date().toISOString() }
+          : r,
+      ),
+    );
 
-      // Dispatch analytics event
-      window.dispatchEvent(new CustomEvent("omnimeda-download-triggered", {
-        detail: { productId: record.productId, title: record.productTitle },
-      }));
-    }
+    // Dispatch analytics event
+    window.dispatchEvent(new CustomEvent("omnimeda-download-triggered", {
+      detail: { productId: record.productId, title: record.productTitle },
+    }));
+
     showToast(`${t("downloads.downloadStarted")} ${record.productTitle}`);
   };
 

@@ -63,7 +63,7 @@ export function AIChatbot({ activeBookId, activeBookTitle }: AIChatbotProps) {
   const [input, setInput] = useState("");
   const [saveHistory, setSaveHistory] = useState(true);
   const [privacyDismissed, setPrivacyDismissed] = useState(false);
-  const [credits, setCredits] = useState(getWallet().credits);
+  const [credits, setCredits] = useState(0);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Load history on mount
@@ -75,7 +75,8 @@ export function AIChatbot({ activeBookId, activeBookTitle }: AIChatbotProps) {
 
   // Listen for wallet updates
   useEffect(() => {
-    const handler = () => setCredits(getWallet().credits);
+    const handler = () => { getWallet().then((w) => setCredits(w.credits)); };
+    handler();
     window.addEventListener("wallet-updated", handler);
     return () => window.removeEventListener("wallet-updated", handler);
   }, []);
@@ -85,13 +86,14 @@ export function AIChatbot({ activeBookId, activeBookTitle }: AIChatbotProps) {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text) return;
 
     // Deduct tokens
     const tokensNeeded = calculateTokens(text);
-    if (!deductCredits(tokensNeeded)) {
+    const hasCredits = await deductCredits(tokensNeeded);
+    if (!hasCredits) {
       const msg: ChatMessage = {
         id: `msg-${Date.now()}`,
         role: "bot",
@@ -136,7 +138,7 @@ export function AIChatbot({ activeBookId, activeBookTitle }: AIChatbotProps) {
     };
 
     setMessages([...updatedMsgs, botMsg]);
-    setCredits(getWallet().credits);
+    getWallet().then((w) => setCredits(w.credits));
     setInput("");
 
     if (saveHistory) {

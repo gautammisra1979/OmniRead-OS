@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1784535893764,
+      "tag": "0000_real_leader",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784755620063,
+      "tag": "0001_sturdy_ikaris",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784934435040,
+      "tag": "0002_shallow_mariko_yashida",
+      "breakpoints": true
+    }
+  ]
+}

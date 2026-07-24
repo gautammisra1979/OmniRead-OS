@@ -25,19 +25,19 @@ export function RefundClaimsManager() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const handleApprove = useCallback((claim: RefundClaim) => {
+  const handleApprove = useCallback(async (claim: RefundClaim) => {
     const result = approveRefundClaim(claim.id, adminNotes || undefined);
     if (result) {
       // Restore loyalty points if toggle is on
       if (restorePoints && claim.refundLoyaltyPoints > 0) {
-        addLedgerEntry({
+        await addLedgerEntry({
           type: "bonus",
           points: claim.refundLoyaltyPoints,
           description: `Refund restoration for "${claim.productTitle}"`,
         });
       }
       // Mark Stripe transaction as refunded
-      markTransactionRefunded(claim.transactionId);
+      await markTransactionRefunded(claim.transactionId);
       setAdminNotes("");
       refresh();
       setStatusMsg({ type: "success", text: `Refund approved for "${claim.productTitle}"${restorePoints && claim.refundLoyaltyPoints > 0 ? ` — ${claim.refundLoyaltyPoints} points restored` : ""}` });

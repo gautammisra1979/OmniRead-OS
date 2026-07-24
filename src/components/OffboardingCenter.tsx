@@ -22,14 +22,14 @@ interface ExportPayload {
   catalog: ReturnType<typeof getCatalogItems>;
   progress: ReturnType<typeof getProgressEntries>;
   reviews: ReturnType<typeof getReviews>;
-  downloads: ReturnType<typeof getDownloads>;
+  downloads: Awaited<ReturnType<typeof getDownloads>>;
   chatHistory: ReturnType<typeof getChatHistory>;
   licenses: ReturnType<typeof getLicenses>;
   unlockedFeatures: string[];
   userPreferences: Record<string, string | null>;
 }
 
-function collectAllData(): ExportPayload {
+async function collectAllData(): Promise<ExportPayload> {
   const prefs: Record<string, string | null> = {};
   if (typeof window !== "undefined") {
     const keys = [
@@ -75,7 +75,7 @@ function collectAllData(): ExportPayload {
     catalog: getCatalogItems(),
     progress: getProgressEntries(),
     reviews: getReviews(),
-    downloads: getDownloads(),
+    downloads: await getDownloads(),
     chatHistory: getChatHistory(),
     licenses: getLicenses(),
     unlockedFeatures: getUnlockedFeatures(),
@@ -145,12 +145,12 @@ export function OffboardingCenter() {
   const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
   const [purging, setPurging] = useState(false);
 
-  const handleExport = useCallback(() => {
+  const handleExport = useCallback(async () => {
     setExporting(true);
     setExportMsg(null);
 
     try {
-      const data = collectAllData();
+      const data = await collectAllData();
       const size = new Blob([JSON.stringify(data)]).size;
       const sizeLabel =
         size < 1024

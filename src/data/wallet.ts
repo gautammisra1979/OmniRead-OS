@@ -1,14 +1,33 @@
 // Credit Wallet & Token Engine
 
+import { createServerFn } from "@tanstack/react-start";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/neon-http";
+import { sql } from "~/db";
+import { wallet as walletTable, type WalletRow } from "~/db/schema";
+import { getOrCreateOwnerId } from "~/lib/ownerId";
+
+/**
+ * Phase 3 (Step 26): DB-backed wallet, replacing the localStorage version.
+ * costPer1K is folded into the same `wallet` row as a column (no more
+ * separate COST_KEY). Rows are keyed by the anonymous ownerId cookie
+ * (src/lib/ownerId.ts) rather than a real user_id — swap once Better Auth
+ * lands. Flight Recorder calls that used to fire on every mutation here have
+ * been removed; Postgres is the durability layer now.
+ *
+ * Each public function below is a plain async wrapper around an internal
+ * createServerFn, preserving the original call signature. The
+ * `wallet-updated` CustomEvent still fires from these wrappers (client-side
+ * only) after a successful write, since the DB write itself happens on the
+ * server and has no `window` to dispatch from.
+ */
+
 export interface WalletState {
   credits: number;
   totalPurchased: number;
   totalConsumed: number;
   refillPrice: number;
 }
-
-const WALLET_KEY = "omnimedia_wallet";
-const COST_KEY = "omnimedia_cost_per_1k";
 
 const DEFAULT_WALLET: WalletState = {
   credits: 50,
@@ -17,44 +36,159 @@ const DEFAULT_WALLET: WalletState = {
   refillPrice: 3.99,
 };
 
-export function getWallet(): WalletState {
-  if (typeof window === "undefined") return { ...DEFAULT_WALLET };
-  try {
-    const raw = localStorage.getItem(WALLET_KEY);
-    if (raw) return { ...DEFAULT_WALLET, ...JSON.parse(raw) };
-  } catch { /* ignore */ }
-  return { ...DEFAULT_WALLET };
+const DEFAULT_COST_PER_1K = 0.01;
+
+function db() {
+  return drizzle(sql());
 }
 
-export function saveWallet(state: WalletState): void {
+function rowToWalletState(row: WalletRow): WalletState {
+  return {
+    credits: Number(row.credits),
+    totalPurchased: Number(row.totalPurchased),
+    totalConsumed: Number(row.totalConsumed),
+    refillPrice: Number(row.refillPrice),
+  };
+}
+
+async function loadWalletRow(ownerId: string): Promise<WalletRow | null> {
+  const rows = await db().select().from(walletTable).where(eq(walletTable.ownerId, ownerId));
+  return rows[0] ?? null;
+}
+
+/** Upsert the wallet row: creates it with defaults (overridden by `patch`) if
+ *  missing, or applies `patch` on top of the existing row. */
+async function upsertWallet(
+  ownerId: string,
+  patch: Partial<{
+    credits: string;
+    totalPurchased: string;
+    totalConsumed: string;
+    refillPrice: string;
+    costPer1K: string;
+  }>,
+): Promise<WalletRow> {
+  const [row] = await db()
+    .insert(walletTable)
+    .values({
+      ownerId,
+      credits: patch.credits ?? String(DEFAULT_WALLET.credits),
+      totalPurchased: patch.totalPurchased ?? String(DEFAULT_WALLET.totalPurchased),
+      totalConsumed: patch.totalConsumed ?? String(DEFAULT_WALLET.totalConsumed),
+      refillPrice: patch.refillPrice ?? String(DEFAULT_WALLET.refillPrice),
+      costPer1K: patch.costPer1K ?? String(DEFAULT_COST_PER_1K),
+    })
+    .onConflictDoUpdate({
+      target: walletTable.ownerId,
+      set: patch,
+    })
+    .returning();
+  return row;
+}
+
+/* ─── Internal server functions ─── */
+
+const dbGetWallet = createServerFn({ method: "GET" }).handler(
+  async (): Promise<WalletState> => {
+    const row = await loadWalletRow(getOrCreateOwnerId());
+    return row ? rowToWalletState(row) : { ...DEFAULT_WALLET };
+  },
+);
+
+const dbSaveWallet = createServerFn({ method: "POST" })
+  .validator((state: WalletState) => state)
+  .handler(async ({ data: state }): Promise<void> => {
+    await upsertWallet(getOrCreateOwnerId(), {
+      credits: String(state.credits),
+      totalPurchased: String(state.totalPurchased),
+      totalConsumed: String(state.totalConsumed),
+      refillPrice: String(state.refillPrice),
+    });
+  });
+
+const dbDeductCredits = createServerFn({ method: "POST" })
+  .validator((amount: number) => amount)
+  .handler(async ({ data: amount }): Promise<{ ok: boolean; wallet: WalletState }> => {
+    const ownerId = getOrCreateOwnerId();
+    const row = await loadWalletRow(ownerId);
+    const current = row ? rowToWalletState(row) : { ...DEFAULT_WALLET };
+    if (current.credits < amount) {
+      return { ok: false, wallet: current };
+    }
+    const next: WalletState = {
+      ...current,
+      credits: current.credits - amount,
+      totalConsumed: current.totalConsumed + amount,
+    };
+    await upsertWallet(ownerId, {
+      credits: String(next.credits),
+      totalPurchased: String(next.totalPurchased),
+      totalConsumed: String(next.totalConsumed),
+      refillPrice: String(next.refillPrice),
+    });
+    return { ok: true, wallet: next };
+  });
+
+const dbAddCredits = createServerFn({ method: "POST" })
+  .validator((amount: number) => amount)
+  .handler(async ({ data: amount }): Promise<WalletState> => {
+    const ownerId = getOrCreateOwnerId();
+    const row = await loadWalletRow(ownerId);
+    const current = row ? rowToWalletState(row) : { ...DEFAULT_WALLET };
+    const next: WalletState = {
+      ...current,
+      credits: current.credits + amount,
+      totalPurchased: current.totalPurchased + amount,
+    };
+    await upsertWallet(ownerId, {
+      credits: String(next.credits),
+      totalPurchased: String(next.totalPurchased),
+      totalConsumed: String(next.totalConsumed),
+      refillPrice: String(next.refillPrice),
+    });
+    return next;
+  });
+
+const dbGetCostPer1K = createServerFn({ method: "GET" }).handler(
+  async (): Promise<number> => {
+    const row = await loadWalletRow(getOrCreateOwnerId());
+    return row ? Number(row.costPer1K) : DEFAULT_COST_PER_1K;
+  },
+);
+
+const dbSaveCostPer1K = createServerFn({ method: "POST" })
+  .validator((cost: number) => cost)
+  .handler(async ({ data: cost }): Promise<void> => {
+    const clamped = Math.min(0.05, Math.max(0, cost));
+    await upsertWallet(getOrCreateOwnerId(), { costPer1K: String(clamped) });
+  });
+
+/* ─── Public API ─── */
+
+export async function getWallet(): Promise<WalletState> {
+  return dbGetWallet();
+}
+
+export async function saveWallet(state: WalletState): Promise<void> {
+  await dbSaveWallet({ data: state });
   if (typeof window !== "undefined") {
-    localStorage.setItem(WALLET_KEY, JSON.stringify(state));
     window.dispatchEvent(new CustomEvent("wallet-updated", { detail: state }));
   }
 }
 
-export function deductCredits(amount: number): boolean {
-  const wallet = getWallet();
-  if (wallet.credits < amount) return false;
-  wallet.credits -= amount;
-  wallet.totalConsumed += amount;
-  saveWallet(wallet);
-  // Flight Recorder
-  import("./flightRecorder").then(({ appendTransaction }) =>
-    appendTransaction("CREDIT_WALLET_CHANGE", wallet),
-  );
-  return true;
+export async function deductCredits(amount: number): Promise<boolean> {
+  const result = await dbDeductCredits({ data: amount });
+  if (result.ok && typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("wallet-updated", { detail: result.wallet }));
+  }
+  return result.ok;
 }
 
-export function addCredits(amount: number): void {
-  const wallet = getWallet();
-  wallet.credits += amount;
-  wallet.totalPurchased += amount;
-  saveWallet(wallet);
-  // Flight Recorder
-  import("./flightRecorder").then(({ appendTransaction }) =>
-    appendTransaction("CREDIT_WALLET_CHANGE", wallet),
-  );
+export async function addCredits(amount: number): Promise<void> {
+  const wallet = await dbAddCredits({ data: amount });
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("wallet-updated", { detail: wallet }));
+  }
 }
 
 export function calculateTokens(text: string): number {
@@ -65,14 +199,10 @@ export function estimateCost(tokens: number, costPer1K: number): number {
   return (tokens / 1000) * costPer1K;
 }
 
-export function getCostPer1K(): number {
-  if (typeof window === "undefined") return 0.01;
-  const raw = localStorage.getItem(COST_KEY);
-  return raw ? parseFloat(raw) : 0.01;
+export async function getCostPer1K(): Promise<number> {
+  return dbGetCostPer1K();
 }
 
-export function saveCostPer1K(cost: number): void {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(COST_KEY, String(Math.min(0.05, Math.max(0, cost))));
-  }
+export async function saveCostPer1K(cost: number): Promise<void> {
+  return dbSaveCostPer1K({ data: cost });
 }

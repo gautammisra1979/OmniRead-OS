@@ -6,7 +6,7 @@
  */
 
 import { getCart, clearCart, type CartItem } from "~/data/cart";
-import { getDownloads, type DownloadRecord } from "~/data/downloads";
+import { getDownloads, addDownload, markDownloadsRefunded } from "~/data/downloads";
 
 export interface StripeTransaction {
   sessionId: string;
@@ -42,8 +42,8 @@ function saveTransactions(txs: StripeTransaction[]): void {
  * Simulate a Stripe Checkout Session redirect.
  * Returns the session ID and stores transaction data.
  */
-export function initiateCheckout(): { sessionId: string; redirectUrl: string } {
-  const cart = getCart();
+export async function initiateCheckout(): Promise<{ sessionId: string; redirectUrl: string }> {
+  const cart = await getCart();
   const total = cart.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
   const sessionId = generateSessionId();
 
@@ -70,7 +70,7 @@ export function initiateCheckout(): { sessionId: string; redirectUrl: string } {
  * clear the cart, and mark transaction as completed.
  * Returns the number of download records added.
  */
-export function completeCheckout(sessionId: string): number {
+export async function completeCheckout(sessionId: string): Promise<number> {
   const txs = getTransactions();
   const tx = txs.find((t) => t.sessionId === sessionId);
   if (!tx) return 0;
@@ -78,37 +78,28 @@ export function completeCheckout(sessionId: string): number {
   tx.status = "completed";
 
   // Write each cart item into the download ledger
-  const downloads = getDownloads();
+  const existingDownloads = await getDownloads();
   let added = 0;
   for (const item of tx.items) {
     // Avoid duplicates
-    const exists = downloads.some(
+    const exists = existingDownloads.some(
       (d) => d.productId === item.productId && d.purchasedAt === tx.completedAt
     );
     if (exists) continue;
 
-    const dl: DownloadRecord = {
-      id: `dl-${sessionId}-${item.productId}`,
+    await addDownload({
       productId: item.productId,
       productTitle: item.title,
       productAuthor: item.author,
       productType: item.type,
       price: item.price,
       purchasedAt: tx.completedAt,
-      lastDownloadedAt: null,
-      downloadCount: 0,
-    };
-    downloads.push(dl);
+    });
     added++;
   }
 
-  // Save updated downloads
-  if (typeof window !== "undefined") {
-    localStorage.setItem("omnimedos_downloads", JSON.stringify(downloads));
-  }
-
   // Clear the cart
-  clearCart();
+  await clearCart();
 
   // Update transaction
   saveTransactions(txs);
@@ -119,7 +110,7 @@ export function completeCheckout(sessionId: string): number {
 /**
  * Flag a transaction and its download records as refunded.
  */
-export function markTransactionRefunded(sessionId: string): void {
+export async function markTransactionRefunded(sessionId: string): Promise<void> {
   const txs = getTransactions();
   const tx = txs.find((t) => t.sessionId === sessionId);
   if (tx) {
@@ -128,17 +119,7 @@ export function markTransactionRefunded(sessionId: string): void {
   }
 
   // Also mark download ledger entries as refunded
-  const downloads = getDownloads();
-  let changed = false;
-  for (const dl of downloads) {
-    if (dl.purchasedAt === tx?.completedAt) {
-      (dl as any).status = "Refunded";
-      changed = true;
-    }
-  }
-  if (changed) {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("omnimedos_downloads", JSON.stringify(downloads));
-    }
+  if (tx) {
+    await markDownloadsRefunded(tx.completedAt);
   }
 }

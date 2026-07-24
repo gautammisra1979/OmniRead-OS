@@ -4,7 +4,6 @@ import {
   getCart,
   removeFromCart,
   clearCart,
-  getCartTotal,
   type CartState,
 } from "~/data/cart";
 
@@ -20,21 +19,19 @@ export function CartDrawer({ open, onClose, onCheckout }: CartDrawerProps) {
 
   useEffect(() => {
     if (open) {
-      setCart(getCart());
+      getCart().then(setCart);
     }
   }, [open]);
 
   const handleRemove = useCallback(
     (productId: string) => {
-      const updated = removeFromCart(productId);
-      setCart(updated);
+      removeFromCart(productId).then(setCart);
     },
     [],
   );
 
   const handleClear = useCallback(() => {
-    const updated = clearCart();
-    setCart(updated);
+    clearCart().then(setCart);
   }, []);
 
   const handleCheckout = useCallback(() => {
@@ -42,7 +39,7 @@ export function CartDrawer({ open, onClose, onCheckout }: CartDrawerProps) {
     onClose();
   }, [onCheckout, onClose]);
 
-  const total = getCartTotal();
+  const total = cart.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
   return (
     <>

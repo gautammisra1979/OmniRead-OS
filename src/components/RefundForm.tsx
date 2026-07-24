@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import { getCurrentPoints } from "~/data/loyalty";
 import { submitRefundClaim } from "~/data/refunds";
@@ -18,7 +18,8 @@ export function RefundForm({ downloadId, productId, productTitle, transactionId,
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  const loyaltyPoints = getCurrentPoints();
+  const [loyaltyPoints, setLoyaltyPoints] = useState(0);
+  useEffect(() => { getCurrentPoints().then(setLoyaltyPoints); }, []);
 
   const handleSubmit = useCallback(() => {
     if (!reason.trim()) return;

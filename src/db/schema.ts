@@ -6,6 +6,9 @@ import {
   boolean,
   timestamp,
   jsonb,
+  uuid,
+  numeric,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -75,3 +78,115 @@ export const catalogItems = pgTable("catalog_items", {
 
 export type CatalogItemRow = typeof catalogItems.$inferSelect;
 export type NewCatalogItemRow = typeof catalogItems.$inferInsert;
+
+/**
+ * Phase 2/3 (Step 26): cart, wallet, and loyalty tables. All keyed by
+ * `ownerId` — a browser-scoped anonymous cookie ID from src/lib/ownerId.ts,
+ * standing in for a real `user_id` until Better Auth is wired in.
+ */
+
+export const cartItems = pgTable("cart_items", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  productId: text("product_id").notNull(),
+  title: text("title").notNull(),
+  author: text("author").notNull(),
+  price: numeric("price", { precision: 10, scale: 2 }).notNull(),
+  type: text("type").notNull(), // ebook | audiobook | video
+  format: text("format").notNull(),
+  coverImage: text("cover_image"),
+  quantity: integer("quantity").notNull().default(1),
+  addedAt: timestamp("added_at").notNull().defaultNow(),
+});
+
+export const cartState = pgTable("cart_state", {
+  ownerId: text("owner_id").primaryKey(),
+  lastActivity: timestamp("last_activity").notNull().defaultNow(),
+  isAbandoned: boolean("is_abandoned").notNull().default(false),
+  abandonedAt: timestamp("abandoned_at"),
+  recoveryCoupon: text("recovery_coupon"),
+  recoveryDiscount: integer("recovery_discount"),
+  recoveryOffered: boolean("recovery_offered").notNull().default(false),
+  recoveryRedeemed: boolean("recovery_redeemed").notNull().default(false),
+});
+
+export type CartItemRow = typeof cartItems.$inferSelect;
+export type NewCartItemRow = typeof cartItems.$inferInsert;
+export type CartStateRow = typeof cartState.$inferSelect;
+export type NewCartStateRow = typeof cartState.$inferInsert;
+
+export const wallet = pgTable("wallet", {
+  ownerId: text("owner_id").primaryKey(),
+  credits: numeric("credits", { precision: 10, scale: 2 }).notNull().default("50"),
+  totalPurchased: numeric("total_purchased", { precision: 10, scale: 2 })
+    .notNull()
+    .default("50"),
+  totalConsumed: numeric("total_consumed", { precision: 10, scale: 2 })
+    .notNull()
+    .default("0"),
+  refillPrice: numeric("refill_price", { precision: 10, scale: 2 })
+    .notNull()
+    .default("3.99"),
+  costPer1K: numeric("cost_per_1k", { precision: 10, scale: 4 })
+    .notNull()
+    .default("0.01"),
+});
+
+export type WalletRow = typeof wallet.$inferSelect;
+export type NewWalletRow = typeof wallet.$inferInsert;
+
+export const loyaltyConfig = pgTable(
+  "loyalty_config",
+  {
+    ownerId: text("owner_id").notNull(),
+    status: text("status").notNull(), // 'draft' | 'published'
+    tiers: jsonb("tiers")
+      .notNull()
+      .$type<Array<{ name: string; pointsRequired: number; multiplier: number }>>(),
+    pointsPerPurchase: integer("points_per_purchase").notNull().default(10),
+    extraCreditsMultiplier: numeric("extra_credits_multiplier", {
+      precision: 5,
+      scale: 2,
+    })
+      .notNull()
+      .default("1"),
+    conversionRate: integer("conversion_rate").notNull().default(100),
+    minimumRedeem: integer("minimum_redeem").notNull().default(50),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.ownerId, table.status] }),
+  }),
+);
+
+export type LoyaltyConfigRow = typeof loyaltyConfig.$inferSelect;
+export type NewLoyaltyConfigRow = typeof loyaltyConfig.$inferInsert;
+
+export const loyaltyLedger = pgTable("loyalty_ledger", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  type: text("type").notNull(), // earned | redeemed | bonus
+  points: integer("points").notNull(),
+  description: text("description").notNull(),
+  productId: text("product_id"),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+});
+
+export type LoyaltyLedgerRow = typeof loyaltyLedger.$inferSelect;
+export type NewLoyaltyLedgerRow = typeof loyaltyLedger.$inferInsert;
+
+export const downloads = pgTable("downloads", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  productId: text("product_id").notNull(),
+  productTitle: text("product_title").notNull(),
+  productAuthor: text("product_author").notNull(),
+  productType: text("product_type").notNull(), // ebook | audiobook | video
+  price: numeric("price", { precision: 10, scale: 2 }).notNull(),
+  purchasedAt: timestamp("purchased_at").notNull(),
+  lastDownloadedAt: timestamp("last_downloaded_at"),
+  downloadCount: integer("download_count").notNull().default(0),
+  status: text("status").notNull().default("active"), // active | refunded
+});
+
+export type DownloadRow = typeof downloads.$inferSelect;
+export type NewDownloadRow = typeof downloads.$inferInsert;

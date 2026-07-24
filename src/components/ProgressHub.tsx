@@ -13,11 +13,21 @@ import {
 } from "~/data/loyalty";
 import { getCatalogItems } from "~/data/catalog";
 
+// Non-empty placeholder so getCurrentTier/getNextTier have a tier to fall
+// back on during the brief window before the real published config loads.
+const PLACEHOLDER_CONFIG: LoyaltyConfig = {
+  tiers: [{ name: "Bronze", pointsRequired: 0, multiplier: 1 }],
+  pointsPerPurchase: 10,
+  extraCreditsMultiplier: 1,
+  conversionRate: 100,
+  minimumRedeem: 50,
+};
+
 export function ProgressHub() {
   const { t } = useLanguage();
-  const [config, setConfig] = useState<LoyaltyConfig>(getPublishedConfig());
-  const [points, setPoints] = useState(getCurrentPoints());
-  const [ledger, setLedger] = useState<LoyaltyLedgerEntry[]>(getLedger());
+  const [config, setConfig] = useState<LoyaltyConfig>(PLACEHOLDER_CONFIG);
+  const [points, setPoints] = useState(0);
+  const [ledger, setLedger] = useState<LoyaltyLedgerEntry[]>([]);
   const [redeemAmount, setRedeemAmount] = useState("");
   const [redeemMsg, setRedeemMsg] = useState("");
   const [redeemStatus, setRedeemStatus] = useState<"idle" | "success" | "error">("idle");
@@ -25,9 +35,9 @@ export function ProgressHub() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const refresh = useCallback(() => {
-    setConfig(getPublishedConfig());
-    setPoints(getCurrentPoints());
-    setLedger(getLedger());
+    getPublishedConfig().then(setConfig);
+    getCurrentPoints().then(setPoints);
+    getLedger().then(setLedger);
   }, []);
 
   useEffect(() => {
@@ -41,8 +51,8 @@ export function ProgressHub() {
     };
   }, [refresh]);
 
-  const currentTier = getCurrentTier(config);
-  const nextTierInfo = getNextTier(config);
+  const currentTier = getCurrentTier(config, points);
+  const nextTierInfo = getNextTier(config, points);
 
   const handleRedeem = useCallback(() => {
     const pts = parseInt(redeemAmount, 10);
@@ -51,16 +61,17 @@ export function ProgressHub() {
       return;
     }
     const desc = redeemMsg.trim() || `Redeemed ${pts} points`;
-    const success = redeemPoints(pts, desc);
-    if (success) {
-      setRedeemStatus("success");
-      setRedeemAmount("");
-      setRedeemMsg("");
-      refresh();
-    } else {
-      setRedeemStatus("error");
-    }
-    setTimeout(() => setRedeemStatus("idle"), 3000);
+    redeemPoints(pts, desc).then((success) => {
+      if (success) {
+        setRedeemStatus("success");
+        setRedeemAmount("");
+        setRedeemMsg("");
+        refresh();
+      } else {
+        setRedeemStatus("error");
+      }
+      setTimeout(() => setRedeemStatus("idle"), 3000);
+    });
   }, [redeemAmount, redeemMsg, config, refresh]);
 
   const sortedLedger = [...ledger].sort((a, b) => {

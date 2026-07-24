@@ -73,9 +73,9 @@ function RouteComponent() {
     };
   }, [productId]);
 
-  const handleAddToCart = () => {
+  const handleAddToCart = async () => {
     if (!product) return;
-    addToCart({
+    await addToCart({
       productId: product.id,
       title: product.title,
       author: product.author,

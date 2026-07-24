@@ -5,7 +5,7 @@ import { FeatureSwitchboard } from "~/components/FeatureSwitchboard";
 import { AnalyticsDashboard } from "~/components/AnalyticsDashboard";
 import { useLanguage } from "~/components/LanguageProvider";
 import { defaultQuiz, type QuizQuestion } from "~/data/defaultQuiz";
-import { getWallet, addCredits, getCostPer1K, saveCostPer1K } from "~/data/wallet";
+import { getWallet, addCredits, getCostPer1K, saveCostPer1K, type WalletState } from "~/data/wallet";
 import {
   getKnowledgeBase,
   saveKnowledgeRow,
@@ -280,7 +280,8 @@ function QuizAccordion({ question }: { question: QuizQuestion }) {
 
 function LibrarianControlSection() {
   const { t } = useLanguage();
-  const [cost, setCost] = useState(getCostPer1K());
+  const [cost, setCost] = useState(0.01);
+  const [wallet, setWallet] = useState<WalletState>({ credits: 0, totalPurchased: 0, totalConsumed: 0, refillPrice: 0 });
   const [freeAmount, setFreeAmount] = useState("100");
   const [kbRows, setKbRows] = useState<KnowledgeRow[]>([]);
   const [kbRefresh, setKbRefresh] = useState(0);
@@ -294,6 +295,14 @@ function LibrarianControlSection() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setKbRows(getKnowledgeBase()); }, [kbRefresh]);
+
+  useEffect(() => {
+    getCostPer1K().then(setCost);
+    getWallet().then(setWallet);
+    const handler = () => { getWallet().then(setWallet); };
+    window.addEventListener("wallet-updated", handler);
+    return () => window.removeEventListener("wallet-updated", handler);
+  }, []);
 
   const handleCostChange = useCallback((val: string) => {
     const n = parseFloat(val);
@@ -339,7 +348,6 @@ function LibrarianControlSection() {
     reader.readAsText(file);
   }, []);
 
-  const wallet = getWallet();
   const profitMargin = cost > 0
     ? (((wallet.refillPrice / (wallet.totalPurchased || 1)) - cost / 1000) / (wallet.refillPrice / (wallet.totalPurchased || 1))) * 100
     : 0;
@@ -467,17 +475,21 @@ function LibrarianControlSection() {
 
 /* ─── Loyalty Rewards Config Section ─── */
 
+const EMPTY_LOYALTY_CONFIG: LoyaltyConfig = { tiers: [], pointsPerPurchase: 10, extraCreditsMultiplier: 1, conversionRate: 100, minimumRedeem: 50 };
+
 function LoyaltyConfigSection() {
   const { t } = useLanguage();
-  const [config, setConfig] = useState<LoyaltyConfig>(getDraftConfig());
-  const [published, setPublished] = useState<LoyaltyConfig>(getPublishedConfig());
+  const [config, setConfig] = useState<LoyaltyConfig>(EMPTY_LOYALTY_CONFIG);
+  const [published, setPublished] = useState<LoyaltyConfig>(EMPTY_LOYALTY_CONFIG);
+  const [hasPublished, setHasPublished] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [activeTab, setActiveTab] = useState<"draft" | "published">("draft");
 
   useEffect(() => {
-    setConfig(getDraftConfig());
-    setPublished(getPublishedConfig());
+    getDraftConfig().then(setConfig);
+    getPublishedConfig().then(setPublished);
+    hasPublishedConfig().then(setHasPublished);
   }, [refreshKey]);
 
   const updateTier = useCallback((idx: number, field: keyof LoyaltyTier, value: string | number) => {
@@ -506,15 +518,14 @@ function LoyaltyConfigSection() {
   }, []);
 
   const handleSaveDraft = useCallback(() => {
-    saveDraftConfig(config);
-    setRefreshKey((k) => k + 1);
+    saveDraftConfig(config).then(() => setRefreshKey((k) => k + 1));
   }, [config]);
 
   const handlePublish = useCallback(() => {
-    saveDraftConfig(config);
-    publishConfig(config);
-    setShowPublishModal(false);
-    setRefreshKey((k) => k + 1);
+    Promise.all([saveDraftConfig(config), publishConfig(config)]).then(() => {
+      setShowPublishModal(false);
+      setRefreshKey((k) => k + 1);
+    });
   }, [config]);
 
   return (
@@ -741,7 +752,7 @@ function LoyaltyConfigSection() {
               {t("admin.loyalty.publish")}
             </button>
             <span className="text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
-              {hasPublishedConfig() ? t("admin.loyalty.publishedExists") : t("admin.loyalty.noPublished")}
+              {hasPublished ? t("admin.loyalty.publishedExists") : t("admin.loyalty.noPublished")}
             </span>
           </div>
         </>

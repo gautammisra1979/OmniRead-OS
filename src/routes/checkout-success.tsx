@@ -17,9 +17,15 @@ function CheckoutSuccessPage() {
 
   useEffect(() => {
     if (sessionId && !processed) {
-      const added = completeCheckout(sessionId);
-      setCount(added);
-      setProcessed(true);
+      let cancelled = false;
+      completeCheckout(sessionId).then((added) => {
+        if (cancelled) return;
+        setCount(added);
+        setProcessed(true);
+      });
+      return () => {
+        cancelled = true;
+      };
     }
   }, [sessionId, processed]);
 

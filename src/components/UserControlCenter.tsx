@@ -88,8 +88,7 @@ export function UserControlCenter({
     savedProfile.current = { name: storedName, email: storedEmail, theme: storedTheme, lang: locale };
 
     // Billing
-    const wallet = getWallet();
-    setWalletCredits(wallet.credits);
+    getWallet().then((wallet) => setWalletCredits(wallet.credits));
 
     // History
     setAffiliateProfile(getAffiliateProfile());
@@ -123,9 +122,12 @@ export function UserControlCenter({
   const handleRefill = useCallback(() => {
     setRefillLoading(true);
     setTimeout(() => {
-      addCredits(100);
-      setWalletCredits(getWallet().credits);
-      setRefillLoading(false);
+      addCredits(100).then(() =>
+        getWallet().then((wallet) => {
+          setWalletCredits(wallet.credits);
+          setRefillLoading(false);
+        }),
+      );
     }, 1500);
   }, []);
 

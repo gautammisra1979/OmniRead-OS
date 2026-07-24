@@ -268,7 +268,7 @@ export function ProductGrid() {
       // Find the product and add to cart
       const product = allProducts.find(p => p.title === title);
       if (product) {
-        addToCart({
+        void addToCart({
           productId: product.id,
           title: product.title,
           author: product.author,

@@ -7,6 +7,7 @@
 
 /* ─── Membership Types ─── */
 
+import { getCatalogItems } from "./catalog";
 export type MembershipTier = "free" | "basic" | "premium" | "enterprise";
 
 export interface MembershipPlan {
@@ -182,7 +183,6 @@ export function saveUpsellOffers(offers: UpsellOffer[]): void {
 }
 
 export function generateUpsellOffers(): UpsellOffer[] {
-  const { getCatalogItems } = require("./catalog") as typeof import("./catalog");
   const items = getCatalogItems();
   return items.slice(0, 3).map((item) => ({
     productId: item.id,

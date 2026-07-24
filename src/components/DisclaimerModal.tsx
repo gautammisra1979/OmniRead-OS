@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import { getDisclaimerConfig, saveDisclaimerConfig, type DisclaimerConfig } from "~/data/membership";
+import { getInfoModals, addInfoModal, removeInfoModal } from "~/data/membership";
 
 export function DisclaimerModal() {
   const { t } = useLanguage();
@@ -258,16 +259,13 @@ export function InfoModalConfigSection() {
   const [newLinkLabel, setNewLinkLabel] = useState("");
 
   useEffect(() => {
-    const { getInfoModals } = require("~/data/membership") as typeof import("~/data/membership");
     setModals(getInfoModals());
   }, []);
 
   const handleAdd = useCallback(() => {
     if (!newTitle.trim() || !newContent.trim()) return;
-    const { addInfoModal } = require("~/data/membership") as typeof import("~/data/membership");
     const id = `info-${Date.now()}`;
     addInfoModal({ id, title: newTitle.trim(), content: newContent.trim(), icon: newIcon, linkLabel: newLinkLabel.trim() || "Learn More" });
-    const { getInfoModals } = require("~/data/membership") as typeof import("~/data/membership");
     setModals(getInfoModals());
     setShowForm(false);
     setNewTitle("");
@@ -279,9 +277,7 @@ export function InfoModalConfigSection() {
   }, [newTitle, newContent, newIcon, newLinkLabel]);
 
   const handleRemove = useCallback((id: string) => {
-    const { removeInfoModal } = require("~/data/membership") as typeof import("~/data/membership");
     removeInfoModal(id);
-    const { getInfoModals } = require("~/data/membership") as typeof import("~/data/membership");
     setModals(getInfoModals());
   }, []);
 
