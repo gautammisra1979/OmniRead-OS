@@ -1,15 +1,5 @@
 import { useState, useCallback, useEffect, useRef, type DragEvent, type ChangeEvent } from "react";
-import {
-  // Manual "Publish" form still writes base64 cover/media via these —
-  // unchanged, and deliberately NOT migrated yet. That path needs Vercel
-  // Blob (Step 26 Phase 2, item 3) before it can write cover_url/media_url;
-  // wiring it to createCatalogItem below would silently drop the uploaded
-  // file. See src/db/queries.ts for the full note.
-  createCatalogItem as createCatalogItemLocal,
-  saveCatalogItem,
-  type CatalogItem,
-  type CatalogStatus,
-} from "~/data/catalog";
+import { type CatalogItem, type CatalogStatus } from "~/data/catalog";
 import {
   getCatalogItems,
   deleteCatalogItem,
@@ -116,37 +106,50 @@ export function CatalogDashboard() {
     author.trim().length > 0 &&
     parseFloat(price) > 0;
 
-  // PAUSED pending Vercel Blob wiring (Step 26 Phase 2, item 3). This form
-  // still builds base64 cover/media via FileReader, and the new schema has
-  // no column to put base64 in — only cover_url/media_url. Wiring this to
-  // the DB-backed createCatalogItem today would either reject the payload
-  // or silently discard the file. Left on the old localStorage path
-  // (createCatalogItemLocal + saveCatalogItem) and disabled below with an
-  // explanation, rather than left callable but quietly broken: since
-  // refresh() now reads from the DB, an item saved only to localStorage
-  // here would never appear in the table beneath it.
-  const handlePublish = () => {
-    if (!isFormValid) return;
-    const item = createCatalogItemLocal({
-      title: title.trim(),
-      author: author.trim(),
-      price: parseFloat(price),
-      type: format === "PDF E-Book" ? "ebook" : format === "MP3 Audiobook" ? "audiobook" : "video",
-      format,
-      description: description.trim(),
-      coverImage,
-      mediaFile: { name: mediaName, dataUrl: mediaDataUrl },
-    });
-    saveCatalogItem(item);
-    resetForm();
-    showToast(t("admin.catalog.published"));
+  // Cover art and media uploads aren't wired to Postgres yet (Step 26 Phase
+  // 2, item 3 — Vercel Blob). The schema only has cover_url/media_url
+  // columns and this form still produces base64 data URLs, so publishing
+  // with either attached is blocked at the button (see canPublish below)
+  // rather than silently discarding the file or writing it somewhere the
+  // table beneath never reads from again.
+  const hasBlockedMedia = !!coverImage || !!mediaDataUrl;
+  const canPublish = isFormValid && !hasBlockedMedia;
 
-    // Notify analytics dashboard
-    window.dispatchEvent(
-      new CustomEvent("omnimeda-product-added", {
-        detail: { title: item.title, price: item.price, type: item.type },
-      }),
-    );
+  // DB-backed (Step 26 Phase 2, POC #2 follow-up) — text-only items (no
+  // cover/media attached) publish straight to Postgres via the same
+  // createCatalogItem() the CSV import path uses below, then refresh() so
+  // the new row shows up in the table immediately. Only reachable when
+  // canPublish is true, i.e. never with a cover/media file attached.
+  const handlePublish = async () => {
+    if (!canPublish) return;
+    try {
+      const item = await createCatalogItem({
+        data: {
+          title: title.trim(),
+          author: author.trim(),
+          price: parseFloat(price),
+          type: format === "PDF E-Book" ? "ebook" : format === "MP3 Audiobook" ? "audiobook" : "video",
+          format,
+          description: description.trim(),
+          coverUrl: null,
+          mediaUrl: null,
+          mediaName: mediaName.trim() || null,
+        },
+      });
+
+      refresh();
+      resetForm();
+      showToast(t("admin.catalog.published"));
+
+      // Notify analytics dashboard
+      window.dispatchEvent(
+        new CustomEvent("omnimeda-product-added", {
+          detail: { title: item.title, price: item.price, type: item.type },
+        }),
+      );
+    } catch {
+      showToast("Publish failed — check connection and retry.");
+    }
   };
 
   const handleDelete = (id: string) => {
@@ -402,13 +405,18 @@ export function CatalogDashboard() {
         <div className="mt-6">
           <button
             type="button"
-            disabled={!isFormValid}
+            disabled={!canPublish}
             onClick={handlePublish}
             className="rounded-lg px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
             style={{ backgroundColor: "var(--color-primary,#6366f1)" }}
           >
             {t("admin.catalog.publish")}
           </button>
+          {hasBlockedMedia && (
+            <p className="mt-2 text-xs text-amber-400" role="status">
+              Cover art and media files aren't wired to the database yet — publishing is blocked until Vercel Blob storage (Phase 2) lands. Remove the attached file(s) below to publish this item without them.
+            </p>
+          )}
         </div>
       </div>
 

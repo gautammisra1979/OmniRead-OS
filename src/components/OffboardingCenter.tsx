@@ -37,12 +37,9 @@ async function collectAllData(): Promise<ExportPayload> {
       "omnimeda_device_id",
       "omnimeda_admin_auth",
       "omnimedos_catalog",
-      "omnimedos_cart",
       "omnimedos_progress",
       "omnimedos_reviews",
-      "omnimedos_downloads",
       "omnimedos_chat_history",
-      "omnimedos_wallet",
       "omnimedos_knowledge_base",
       "omnimedos_affiliate",
       "omnimedos_affiliate_clicks",
@@ -56,9 +53,6 @@ async function collectAllData(): Promise<ExportPayload> {
       "omnimeda_licenses",
       "omnimeda_activations",
       "omnimeda_activated_features",
-      "omnimedos_loyalty_config",
-      "omnimedos_loyalty_points",
-      "omnimedos_loyalty_ledger",
     ];
     for (const key of keys) {
       try {
