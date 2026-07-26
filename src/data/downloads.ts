@@ -157,13 +157,13 @@ const dbIncrementDownloadCount = createServerFn({ method: "POST" })
   });
 
 const dbMarkDownloadsRefunded = createServerFn({ method: "POST" })
-  .validator((purchasedAt: string) => purchasedAt)
-  .handler(async ({ data: purchasedAt }): Promise<void> => {
+  .validator((sessionId: string) => sessionId)
+  .handler(async ({ data: sessionId }): Promise<void> => {
     const ownerId = getOrCreateOwnerId();
     await db()
       .update(downloads)
       .set({ status: "refunded" })
-      .where(and(eq(downloads.ownerId, ownerId), eq(downloads.purchasedAt, new Date(purchasedAt))));
+      .where(and(eq(downloads.ownerId, ownerId), eq(downloads.sessionId, sessionId)));
   });
 
 /* ─── Public API ─── */
@@ -191,6 +191,6 @@ export async function incrementDownloadCount(id: string): Promise<void> {
   return dbIncrementDownloadCount({ data: id });
 }
 
-export async function markDownloadsRefunded(purchasedAt: string): Promise<void> {
-  return dbMarkDownloadsRefunded({ data: purchasedAt });
+export async function markDownloadsRefunded(sessionId: string): Promise<void> {
+  return dbMarkDownloadsRefunded({ data: sessionId });
 }

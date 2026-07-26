@@ -121,6 +121,6 @@ export async function markTransactionRefunded(sessionId: string): Promise<void> 
 
   // Also mark download ledger entries as refunded
   if (tx) {
-    await markDownloadsRefunded(tx.completedAt);
+    await markDownloadsRefunded(tx.sessionId);
   }
 }
