@@ -191,3 +191,21 @@ export const downloads = pgTable("downloads", {
 
 export type DownloadRow = typeof downloads.$inferSelect;
 export type NewDownloadRow = typeof downloads.$inferInsert;
+
+export const refundClaims = pgTable("refund_claims", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  downloadId: uuid("download_id").notNull(),
+  productId: text("product_id").notNull(),
+  productTitle: text("product_title").notNull(),
+  transactionId: text("transaction_id").notNull(), // real Stripe sessionId now
+  reason: text("reason").notNull(),
+  status: text("status").notNull().default("pending"), // pending | approved | rejected
+  requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  refundLoyaltyPoints: integer("refund_loyalty_points").notNull().default(0),
+  adminNotes: text("admin_notes"),
+});
+
+export type RefundClaimRow = typeof refundClaims.$inferSelect;
+export type NewRefundClaimRow = typeof refundClaims.$inferInsert;

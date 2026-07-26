@@ -24,7 +24,6 @@ const DEV_RESET_KEYS = [
   "omnimeda_licenses",
   "omnimeda_activations",
   "omnimeda_activated_features",
-  "omnimedia_refund_claims",
   "omnimedia_stripe_transactions",
   "omnimedos_branding",
   "omnimedos_theme",

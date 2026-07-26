@@ -21,22 +21,21 @@ export function RefundForm({ downloadId, productId, productTitle, transactionId,
   const [loyaltyPoints, setLoyaltyPoints] = useState(0);
   useEffect(() => { getCurrentPoints().then(setLoyaltyPoints); }, []);
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     if (!reason.trim()) return;
     setSubmitting(true);
-    // Simulate async submission
-    setTimeout(() => {
-      submitRefundClaim({
-        downloadId,
-        productId,
-        productTitle,
-        transactionId,
-        reason: reason.trim(),
-        refundLoyaltyPoints: loyaltyPoints,
-      });
-      setSubmitted(true);
-      setSubmitting(false);
-    }, 800);
+    // Simulate a brief processing delay before the write.
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    await submitRefundClaim({
+      downloadId,
+      productId,
+      productTitle,
+      transactionId,
+      reason: reason.trim(),
+      refundLoyaltyPoints: loyaltyPoints,
+    });
+    setSubmitted(true);
+    setSubmitting(false);
   }, [reason, downloadId, productId, productTitle, transactionId, loyaltyPoints]);
 
   if (submitted) {

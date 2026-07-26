@@ -18,15 +18,16 @@ export function RefundClaimsManager() {
   const [statusMsg, setStatusMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [adminNotes, setAdminNotes] = useState("");
 
-  const refresh = useCallback(() => {
-    setClaims(getRefundClaims());
-    setCounts(getClaimCounts());
+  const refresh = useCallback(async () => {
+    const [nextClaims, nextCounts] = await Promise.all([getRefundClaims(), getClaimCounts()]);
+    setClaims(nextClaims);
+    setCounts(nextCounts);
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
 
   const handleApprove = useCallback(async (claim: RefundClaim) => {
-    const result = approveRefundClaim(claim.id, adminNotes || undefined);
+    const result = await approveRefundClaim(claim.id, adminNotes || undefined);
     if (result) {
       // Restore loyalty points if toggle is on
       if (restorePoints && claim.refundLoyaltyPoints > 0) {
@@ -39,16 +40,16 @@ export function RefundClaimsManager() {
       // Mark Stripe transaction as refunded
       await markTransactionRefunded(claim.transactionId);
       setAdminNotes("");
-      refresh();
+      await refresh();
       setStatusMsg({ type: "success", text: `Refund approved for "${claim.productTitle}"${restorePoints && claim.refundLoyaltyPoints > 0 ? ` — ${claim.refundLoyaltyPoints} points restored` : ""}` });
     }
   }, [restorePoints, adminNotes, refresh]);
 
-  const handleReject = useCallback((claim: RefundClaim) => {
-    const result = rejectRefundClaim(claim.id, adminNotes || undefined);
+  const handleReject = useCallback(async (claim: RefundClaim) => {
+    const result = await rejectRefundClaim(claim.id, adminNotes || undefined);
     if (result) {
       setAdminNotes("");
-      refresh();
+      await refresh();
       setStatusMsg({ type: "success", text: `Refund rejected for "${claim.productTitle}"` });
     }
   }, [adminNotes, refresh]);
