@@ -67,6 +67,14 @@ function TypeBadge({ type }: { type: DownloadRecord["productType"] }) {
   );
 }
 
+function RefundedBadge() {
+  return (
+    <span className="inline-block rounded-md border border-red-700/40 bg-red-900/20 px-2 py-0.5 text-[11px] font-medium text-red-300">
+      Refunded
+    </span>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Summary header                                                     */
 /* ------------------------------------------------------------------ */
@@ -424,7 +432,10 @@ export function DownloadLedger() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <TypeBadge type={record.productType} />
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <TypeBadge type={record.productType} />
+                        {record.status === "refunded" && <RefundedBadge />}
+                      </div>
                     </td>
                     <td
                       className="px-4 py-3"
@@ -507,7 +518,10 @@ export function DownloadLedger() {
                       by {record.productAuthor}
                     </p>
                   </div>
-                  <TypeBadge type={record.productType} />
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    <TypeBadge type={record.productType} />
+                    {record.status === "refunded" && <RefundedBadge />}
+                  </div>
                 </div>
                 <div className="mb-1 flex items-center justify-between text-xs">
                   <span style={{ color: "var(--color-text-muted)" }}>

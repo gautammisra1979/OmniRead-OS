@@ -27,6 +27,7 @@ export interface DownloadRecord {
   lastDownloadedAt: string | null; // ISO date or null
   downloadCount: number;
   sessionId: string | null;
+  status: "active" | "refunded";
 }
 
 function db() {
@@ -45,6 +46,7 @@ function rowToRecord(row: DownloadRow): DownloadRecord {
     lastDownloadedAt: row.lastDownloadedAt ? row.lastDownloadedAt.toISOString() : null,
     downloadCount: row.downloadCount,
     sessionId: row.sessionId,
+    status: row.status as DownloadRecord["status"],
   };
 }
 
