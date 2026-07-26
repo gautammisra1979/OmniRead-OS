@@ -209,3 +209,20 @@ export const refundClaims = pgTable("refund_claims", {
 
 export type RefundClaimRow = typeof refundClaims.$inferSelect;
 export type NewRefundClaimRow = typeof refundClaims.$inferInsert;
+
+/**
+ * AI Librarian knowledge base source material, keyed to a `book_id`. Unlike
+ * the tables above, this is global catalog content managed by the store
+ * admin — not per-visitor state — so it deliberately has no `ownerId`
+ * column, matching how `catalogItems` is treated.
+ */
+export const knowledgeRows = pgTable("knowledge_rows", {
+  id: text("id").primaryKey(),
+  bookId: text("book_id").notNull(),
+  knowledgeType: text("knowledge_type").notNull(), // theme | timestamp_note | spoiler_shield_qa | cross_sell_hook
+  markerReference: text("marker_reference").notNull(),
+  contentBody: text("content_body").notNull(),
+});
+
+export type KnowledgeRowRow = typeof knowledgeRows.$inferSelect;
+export type NewKnowledgeRowRow = typeof knowledgeRows.$inferInsert;
