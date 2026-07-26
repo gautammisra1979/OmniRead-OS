@@ -18,7 +18,7 @@ interface AIChatbotProps {
   activeBookTitle?: string;
 }
 
-function generateBotResponse(userText: string, bookId?: string, bookTitle?: string): string {
+async function generateBotResponse(userText: string, bookId?: string, bookTitle?: string): Promise<string> {
   const lower = userText.toLowerCase();
   const isRecommendation =
     lower.includes("recommend") ||
@@ -28,7 +28,7 @@ function generateBotResponse(userText: string, bookId?: string, bookTitle?: stri
 
   // Vertical thinking: if book context is active, search knowledge base
   if (bookId) {
-    const kbResults = searchKnowledge(userText, bookId);
+    const kbResults = await searchKnowledge(userText, bookId);
     if (kbResults.length > 0) {
       const entries = kbResults
         .slice(0, 3)
@@ -118,7 +118,7 @@ export function AIChatbot({ activeBookId, activeBookTitle }: AIChatbotProps) {
     const updatedMsgs = [...messages, userMsg];
 
     // Generate bot response
-    let botText = generateBotResponse(text, activeBookId, activeBookTitle);
+    let botText = await generateBotResponse(text, activeBookId, activeBookTitle);
     const botTokens = calculateTokens(botText);
 
     // Enforce max 200 tokens

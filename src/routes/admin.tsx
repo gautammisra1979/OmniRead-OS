@@ -294,7 +294,7 @@ function LibrarianControlSection() {
   const [csvDragOver, setCsvDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { setKbRows(getKnowledgeBase()); }, [kbRefresh]);
+  useEffect(() => { getKnowledgeBase().then(setKbRows); }, [kbRefresh]);
 
   useEffect(() => {
     getCostPer1K().then(setCost);
@@ -314,19 +314,19 @@ function LibrarianControlSection() {
     if (!isNaN(amount) && amount > 0) addCredits(amount);
   }, [freeAmount]);
 
-  const handleAddRow = useCallback(() => {
+  const handleAddRow = useCallback(async () => {
     if (!newBookId.trim() || !newMarker.trim() || !newContent.trim()) return;
-    saveKnowledgeRow({ id: generateKnowledgeRowId(), book_id: newBookId.trim(), knowledge_type: newType, marker_reference: newMarker.trim(), content_body: newContent.trim() });
+    await saveKnowledgeRow({ id: generateKnowledgeRowId(), book_id: newBookId.trim(), knowledge_type: newType, marker_reference: newMarker.trim(), content_body: newContent.trim() });
     setNewBookId(""); setNewMarker(""); setNewContent(""); setShowAddForm(false);
     setKbRefresh((r) => r + 1);
   }, [newBookId, newType, newMarker, newContent]);
 
-  const handleDeleteRow = useCallback((id: string) => { deleteKnowledgeRow(id); setKbRefresh((r) => r + 1); }, []);
+  const handleDeleteRow = useCallback(async (id: string) => { await deleteKnowledgeRow(id); setKbRefresh((r) => r + 1); }, []);
 
   const handleCsvFile = useCallback((file: File) => {
     if (!file.name.endsWith(".csv")) return;
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const text = e.target?.result as string;
       if (!text) return;
       const lines = text.split(/\r?\n/).filter((l) => l.trim());
@@ -342,7 +342,7 @@ function LibrarianControlSection() {
         if (!KNOWLEDGE_TYPES.includes(vals[1] as KnowledgeType)) { errors.push(`Row ${i + 1}: invalid type '${vals[1]}'`); continue; }
         rows.push({ id: generateKnowledgeRowId(), book_id: vals[0], knowledge_type: vals[1] as KnowledgeType, marker_reference: vals[2], content_body: vals[3] });
       }
-      if (rows.length > 0) { upsertKnowledgeRows(rows); setKbRefresh((r) => r + 1); }
+      if (rows.length > 0) { await upsertKnowledgeRows(rows); setKbRefresh((r) => r + 1); }
       setCsvSummary({ success: rows.length, errors });
     };
     reader.readAsText(file);
