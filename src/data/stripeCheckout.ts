@@ -94,6 +94,7 @@ export async function completeCheckout(sessionId: string): Promise<number> {
       productType: item.type,
       price: item.price,
       purchasedAt: tx.completedAt,
+      sessionId,
     });
     added++;
   }

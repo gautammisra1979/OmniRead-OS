@@ -26,6 +26,7 @@ export interface DownloadRecord {
   purchasedAt: string; // ISO date
   lastDownloadedAt: string | null; // ISO date or null
   downloadCount: number;
+  sessionId: string | null;
 }
 
 function db() {
@@ -43,6 +44,7 @@ function rowToRecord(row: DownloadRow): DownloadRecord {
     purchasedAt: row.purchasedAt.toISOString(),
     lastDownloadedAt: row.lastDownloadedAt ? row.lastDownloadedAt.toISOString() : null,
     downloadCount: row.downloadCount,
+    sessionId: row.sessionId,
   };
 }
 
@@ -114,6 +116,7 @@ const dbAddDownload = createServerFn({ method: "POST" })
       productType: "ebook" | "audiobook" | "video";
       price: number;
       purchasedAt: string;
+      sessionId: string;
     }) => record,
   )
   .handler(async ({ data: record }): Promise<DownloadRecord> => {
@@ -130,6 +133,7 @@ const dbAddDownload = createServerFn({ method: "POST" })
         purchasedAt: new Date(record.purchasedAt),
         lastDownloadedAt: null,
         downloadCount: 0,
+        sessionId: record.sessionId,
       })
       .returning();
     return rowToRecord(row);
@@ -178,6 +182,7 @@ export async function addDownload(record: {
   productType: "ebook" | "audiobook" | "video";
   price: number;
   purchasedAt: string;
+  sessionId: string;
 }): Promise<DownloadRecord> {
   return dbAddDownload({ data: record });
 }
