@@ -1,0 +1,1 @@
+ALTER TABLE "downloads" ADD COLUMN "session_id" text;

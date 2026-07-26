@@ -186,6 +186,7 @@ export const downloads = pgTable("downloads", {
   lastDownloadedAt: timestamp("last_downloaded_at"),
   downloadCount: integer("download_count").notNull().default(0),
   status: text("status").notNull().default("active"), // active | refunded
+  sessionId: text("session_id"),
 });
 
 export type DownloadRow = typeof downloads.$inferSelect;
