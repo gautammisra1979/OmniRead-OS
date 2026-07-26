@@ -12,7 +12,6 @@ const DEV_RESET_KEYS = [
   "omnimedos_affiliate_ledger",
   "omnimedos_chat_history",
   "omnimedos_wallet",
-  "omnimedos_knowledge_base",
   "omnimedos_comments",
   "omnimedos_media_progress",
   "omnimedos_loyalty_config",
