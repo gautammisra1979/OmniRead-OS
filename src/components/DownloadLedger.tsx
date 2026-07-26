@@ -462,9 +462,11 @@ export function DownloadLedger() {
                         <button
                           type="button"
                           onClick={() => setRefundingRecord(record)}
-                          className="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors hover:opacity-80"
+                          disabled={!record.sessionId}
+                          className="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
                           style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}
                           aria-label={`${t("checkout.requestRefund")} ${record.productTitle}`}
+                          title={record.sessionId ? undefined : "Refunds aren't available for this demo purchase"}
                         >
                           {t("checkout.requestRefund")}
                         </button>
@@ -533,9 +535,11 @@ export function DownloadLedger() {
                 <button
                   type="button"
                   onClick={() => setRefundingRecord(record)}
-                  className="rounded-lg border px-3 py-2 text-xs font-medium transition-colors hover:opacity-80"
+                  disabled={!record.sessionId}
+                  className="rounded-lg border px-3 py-2 text-xs font-medium transition-colors hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
                   style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}
                   aria-label={`${t("checkout.requestRefund")} ${record.productTitle}`}
+                  title={record.sessionId ? undefined : "Refunds aren't available for this demo purchase"}
                 >
                   {t("checkout.requestRefund")}
                 </button>
@@ -553,12 +557,12 @@ export function DownloadLedger() {
       />
 
       {/* Refund Form Modal */}
-      {refundingRecord && (
+      {refundingRecord && refundingRecord.sessionId && (
         <RefundForm
           downloadId={refundingRecord.id}
           productId={refundingRecord.productId}
           productTitle={refundingRecord.productTitle}
-          transactionId={refundingRecord.id}
+          transactionId={refundingRecord.sessionId}
           onClose={() => setRefundingRecord(null)}
           onSubmitted={() => {
             setRefundingRecord(null);
