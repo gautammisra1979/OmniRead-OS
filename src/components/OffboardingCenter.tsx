@@ -46,8 +46,6 @@ async function collectAllData(): Promise<ExportPayload> {
       "omnimedos_affiliate_ledger",
       "omnimedos_branding",
       "omnimedos_theme",
-      "omnimedos_promotions",
-      "omnimedos_comments",
       "omnimedos_media_progress",
       "omnimeda_license_keypair",
       "omnimeda_licenses",
