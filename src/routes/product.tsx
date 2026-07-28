@@ -2,14 +2,14 @@ import { useState, useEffect } from "react";
 import { createFileRoute, useParams, Link } from "@tanstack/react-router";
 import { useLanguage } from "~/components/LanguageProvider";
 import { LicenseGate } from "~/components/LicenseGate";
-import { getAllProducts, type Product } from "~/data/products";
+import { getAllProducts, applyRecoveryDiscount, type Product } from "~/data/products";
 import { type CatalogItem } from "~/data/catalog";
 import { getCatalogItemById } from "~/db/queries";
 import { MediaPlayer } from "~/components/MediaPlayer";
 import { CrossSellGrid } from "~/components/CrossSellGrid";
 import { CommentTree } from "~/components/CommentTree";
 import { getPromoSettings } from "~/data/promotions";
-import { addToCart } from "~/data/cart";
+import { addToCart, getRecoveryPromoCode } from "~/data/cart";
 
 export const Route = createFileRoute("/product")({
   component: RouteComponent,
@@ -50,12 +50,20 @@ function RouteComponent() {
   useEffect(() => {
     let cancelled = false;
 
-    const all = getAllProducts();
-    const found = all.find((p) => p.id === productId) ?? null;
-    setProduct(found);
-    if (found) {
-      setSelectedFormat(found.format);
-    }
+    // DB-backed promo settings + this visitor's personal recovery discount
+    // (Step 26 Phase 4) — were synchronous localStorage reads. The recovery
+    // discount, if redeemed, overrides the storewide promo for this
+    // visitor's own view only — it's never written back into PromoSettings.
+    Promise.all([getPromoSettings(), getRecoveryPromoCode()]).then(([settings, recovery]) => {
+      if (cancelled) return;
+      const all = getAllProducts(settings);
+      const found = all.find((p) => p.id === productId) ?? null;
+      const withRecovery = found ? applyRecoveryDiscount(found, recovery) : null;
+      setProduct(withRecovery);
+      if (withRecovery) {
+        setSelectedFormat(withRecovery.format);
+      }
+    });
 
     // DB-backed (Step 26 Phase 2, POC #1) — was a synchronous localStorage
     // read via getCatalogItems().find(...). Note: coverImage/mediaFile will

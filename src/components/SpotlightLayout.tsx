@@ -1,17 +1,40 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import { getCatalogItems, type CatalogItem } from "~/data/catalog";
-import { getAllProducts, type Product } from "~/data/products";
+import { getAllProducts, applyRecoveryDiscount, type Product } from "~/data/products";
 import { getFeaturedProductId, getLatestCatalogItem } from "~/data/layoutMatrix";
-import { getPromoSettings, calculateDiscountedPrice } from "~/data/promotions";
+import {
+  getPromoSettings,
+  calculateDiscountedPrice,
+  DEFAULT_PROMO_SETTINGS,
+  type PromoSettings,
+} from "~/data/promotions";
+import { getRecoveryPromoCode } from "~/data/cart";
 import { ComingSoonSection } from "~/components/ComingSoonSection";
 
 const MAX_SECONDARY = 10;
 
 export function SpotlightLayout() {
   const { t } = useLanguage();
-  const allProducts = useMemo(() => getAllProducts(), []);
   const catalogItems = useMemo(() => getCatalogItems(), []);
+  const [promoSettings, setPromoSettings] = useState<PromoSettings>(DEFAULT_PROMO_SETTINGS);
+  const [recoveryPromo, setRecoveryPromo] = useState<{ code: string; discount: number } | null>(null);
+
+  // DB-backed promo settings + this visitor's personal recovery discount
+  // (Step 26 Phase 4) — were synchronous localStorage reads.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([getPromoSettings(), getRecoveryPromoCode()]).then(([settings, recovery]) => {
+      if (cancelled) return;
+      setPromoSettings(settings);
+      setRecoveryPromo(recovery);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const allProducts = useMemo(() => getAllProducts(promoSettings), [promoSettings]);
 
   const featuredId = getFeaturedProductId();
   let featuredProduct: Product | null = null;
@@ -24,11 +47,10 @@ export function SpotlightLayout() {
     // Fallback to newest catalog item
     const latest = getLatestCatalogItem(catalogItems);
     if (latest) {
-      const settings = getPromoSettings();
       const { discounted, hasDiscount } = calculateDiscountedPrice(
         latest.price,
         latest.promoOverride ?? null,
-        settings,
+        promoSettings,
         latest.type,
       );
       featuredProduct = {
@@ -51,9 +73,17 @@ export function SpotlightLayout() {
     }
   }
 
-  const secondaryProducts = allProducts.filter(
-    (p) => p.id !== featuredProduct?.id && p.status !== "coming-soon",
-  ).slice(0, MAX_SECONDARY);
+  // A visitor's personal recovery-cart discount overrides the storewide
+  // promo for their own view — applied after the global calculation above,
+  // never written back into the shared PromoSettings row.
+  if (featuredProduct) {
+    featuredProduct = applyRecoveryDiscount(featuredProduct, recoveryPromo);
+  }
+
+  const secondaryProducts = allProducts
+    .filter((p) => p.id !== featuredProduct?.id && p.status !== "coming-soon")
+    .slice(0, MAX_SECONDARY)
+    .map((p) => applyRecoveryDiscount(p, recoveryPromo));
 
   return (
     <>

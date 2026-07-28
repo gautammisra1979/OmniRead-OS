@@ -1,9 +1,10 @@
 import { useState, useCallback, useEffect } from "react";
-import { getAllProducts, type Product } from "~/data/products";
+import { getAllProducts, applyRecoveryDiscount, type Product } from "~/data/products";
 import { useLanguage } from "~/components/LanguageProvider";
 import { CrossSellGrid } from "~/components/CrossSellGrid";
 import { MediaPlayer } from "~/components/MediaPlayer";
-import { addToCart } from "~/data/cart";
+import { addToCart, getRecoveryPromoCode } from "~/data/cart";
+import { getPromoSettings, DEFAULT_PROMO_SETTINGS, type PromoSettings } from "~/data/promotions";
 import { QuickHoverMenu } from "~/components/QuickHoverMenu";
 
 const MAX_PRODUCTS = 10;
@@ -241,6 +242,8 @@ export function ProductGrid() {
   const [toastMsg, setToastMsg] = useState("");
   const [toastVisible, setToastVisible] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [promoSettings, setPromoSettings] = useState<PromoSettings>(DEFAULT_PROMO_SETTINGS);
+  const [recoveryPromo, setRecoveryPromo] = useState<{ code: string; discount: number } | null>(null);
   const { t } = useLanguage();
 
   // Re-render when storage changes (admin adds products in another tab)
@@ -255,7 +258,21 @@ export function ProductGrid() {
     };
   }, []);
 
-  const allProducts = getAllProducts();
+  // DB-backed promo settings + this visitor's personal recovery discount
+  // (Step 26 Phase 4) — were synchronous localStorage reads.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([getPromoSettings(), getRecoveryPromoCode()]).then(([settings, recovery]) => {
+      if (cancelled) return;
+      setPromoSettings(settings);
+      setRecoveryPromo(recovery);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const allProducts = getAllProducts(promoSettings).map((p) => applyRecoveryDiscount(p, recoveryPromo));
   // Filter out "coming-soon" items from the main grid (they go in ComingSoonSection)
   const liveProducts = allProducts.filter((p) => p.status !== "coming-soon");
   // Limit to max 10 items

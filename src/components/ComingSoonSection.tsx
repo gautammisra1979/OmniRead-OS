@@ -1,7 +1,9 @@
 import { useState, useCallback, useEffect } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import { getComingSoonCatalogItems, getCatalogItems } from "~/data/catalog";
-import { getAllProducts, type Product } from "~/data/products";
+import { getAllProducts, applyRecoveryDiscount, type Product } from "~/data/products";
+import { getPromoSettings, DEFAULT_PROMO_SETTINGS, type PromoSettings } from "~/data/promotions";
+import { getRecoveryPromoCode } from "~/data/cart";
 
 function StarRating({ rating }: { rating: number }) {
   return (
@@ -29,6 +31,8 @@ export function ComingSoonSection() {
   const [notifyIds, setNotifyIds] = useState<Set<string>>(new Set());
   const [refreshKey, setRefreshKey] = useState(0);
   const [hydrated, setHydrated] = useState(false);
+  const [promoSettings, setPromoSettings] = useState<PromoSettings>(DEFAULT_PROMO_SETTINGS);
+  const [recoveryPromo, setRecoveryPromo] = useState<{ code: string; discount: number } | null>(null);
 
   // Hydration guard — skip SSR render to avoid window access during SSR
   useEffect(() => {
@@ -47,9 +51,23 @@ export function ComingSoonSection() {
     };
   }, []);
 
+  // DB-backed promo settings + this visitor's personal recovery discount
+  // (Step 26 Phase 4) — were synchronous localStorage reads.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([getPromoSettings(), getRecoveryPromoCode()]).then(([settings, recovery]) => {
+      if (cancelled) return;
+      setPromoSettings(settings);
+      setRecoveryPromo(recovery);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   if (!hydrated) return null;
 
-  const allProducts = getAllProducts();
+  const allProducts = getAllProducts(promoSettings).map((p) => applyRecoveryDiscount(p, recoveryPromo));
   const comingSoonItems = allProducts.filter((p) => p.status === "coming-soon");
 
   // Also check raw catalog items for coming-soon status

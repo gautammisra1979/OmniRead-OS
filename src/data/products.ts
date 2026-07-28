@@ -1,5 +1,5 @@
 import { getCatalogItems, type CatalogItem } from "./catalog";
-import { calculateDiscountedPrice, getPromoSettings } from "./promotions";
+import { calculateDiscountedPrice, DEFAULT_PROMO_SETTINGS, type PromoSettings } from "./promotions";
 
 export interface Product {
   id: string;
@@ -78,10 +78,9 @@ export const products: Product[] = [
   },
 ];
 
-export function getAllProducts(): Product[] {
+export function getAllProducts(settings: PromoSettings = DEFAULT_PROMO_SETTINGS): Product[] {
   const staticProducts = products;
   const catalogItems = getCatalogItems();
-  const settings = getPromoSettings();
   const mapped: Product[] = catalogItems.map((item: CatalogItem) => {
     const { discounted, hasDiscount } = calculateDiscountedPrice(item.price, item.promoOverride, settings, item.type);
     return {
@@ -108,12 +107,28 @@ export function getAllProducts(): Product[] {
     };
   });
   // Filter retired items, then merge with static products
-  const all = [...staticProducts.map(applyDiscount), ...mapped];
+  const all = [...staticProducts.map((p) => applyDiscount(p, settings)), ...mapped];
   return all.filter((p) => p.status !== "retired");
 }
 
-function applyDiscount(product: Product): Product {
-  const settings = getPromoSettings();
+function applyDiscount(product: Product, settings: PromoSettings): Product {
   const { discounted, hasDiscount } = calculateDiscountedPrice(product.price, null, settings, product.type);
   return { ...product, displayPrice: hasDiscount ? discounted : undefined, hasDiscount: hasDiscount };
+}
+
+// A visitor's personal recovery-cart discount (see getRecoveryPromoCode in
+// ~/data/cart) overrides the storewide promo for their own view — applied
+// client-side after the global calculation, never merged into PromoSettings.
+export function applyRecoveryDiscount(
+  product: Product,
+  recovery: { code: string; discount: number } | null,
+): Product {
+  if (!recovery) return product;
+  const { discounted } = calculateDiscountedPrice(
+    product.price,
+    { hasOverride: true, overrideType: "percentage", overrideValue: recovery.discount },
+    DEFAULT_PROMO_SETTINGS,
+    product.type,
+  );
+  return { ...product, displayPrice: discounted, hasDiscount: true };
 }

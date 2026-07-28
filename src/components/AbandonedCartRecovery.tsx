@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { getPromoSettings, savePromoSettings } from "~/data/promotions";
 import {
   checkCartAbandoned,
   redeemRecoveryCoupon,
@@ -54,21 +53,15 @@ export function AbandonedCartRecovery({ onOpenCart }: AbandonedCartRecoveryProps
   const discountPercent = cart && cart.recoveryOffered && !cart.recoveryRedeemed && cart.recoveryDiscount ? cart.recoveryDiscount : null;
 
   const handleRedeem = useCallback(() => {
-    // Inject into the Promotions module so checkout prices reflect the discount
-    const promoSettings = getPromoSettings();
-    savePromoSettings({
-      ...promoSettings,
-      isPromoModuleEnabled: true,
-      globalDiscountType: "coupon",
-      activeCouponCode: couponCode || "WELCOME_BACK",
-      globalDiscountValue: discountPercent || 15,
-    });
+    // Redemption is scoped to this visitor's own cart_state row
+    // (getRecoveryPromoCode in ~/data/cart) — it must never touch the
+    // global promo_settings row, which is shared storewide.
     redeemRecoveryCoupon().then((updated) => {
       setCart(updated);
       setShow(false);
       onOpenCart();
     });
-  }, [onOpenCart, couponCode, discountPercent]);
+  }, [onOpenCart]);
 
   const handleDismiss = useCallback(() => {
     dismissRecovery().then(() => {

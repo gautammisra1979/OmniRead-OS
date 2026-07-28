@@ -4,7 +4,6 @@ import {
   getCommentsForProduct,
   addComment,
   replyToComment,
-  deleteComment,
   seedDemoComments,
   type Comment,
 } from "~/data/comments";
@@ -100,13 +99,11 @@ function CommentNode({
   comment,
   depth,
   onReply,
-  onDelete,
   productId,
 }: {
   comment: Comment;
   depth: number;
   onReply: (parentId: string, author: string, body: string) => void;
-  onDelete: (id: string) => void;
   productId: string;
 }) {
   const [showReplyForm, setShowReplyForm] = useState(false);
@@ -137,34 +134,20 @@ function CommentNode({
         }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <div
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
-              style={{ backgroundColor: "var(--color-primary,#6366f1)" }}
-              aria-hidden="true"
-            >
-              {comment.author.charAt(0).toUpperCase()}
-            </div>
-            <span className="truncate text-xs font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>
-              {comment.author}
-            </span>
-            <span className="text-[10px] shrink-0" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
-              {formatTimeAgo(comment.createdAt)}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => onDelete(comment.id)}
-            className="shrink-0 rounded p-1 text-[10px] opacity-0 transition-opacity hover:opacity-100 group-hover:opacity-60"
-            style={{ color: "var(--color-text-muted,#94a3b8)" }}
-            aria-label={t("comments.delete").replace("{author}", comment.author)}
-            title={t("comments.delete").replace("{author}", comment.author)}
+        <div className="flex items-center gap-2 min-w-0">
+          <div
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+            style={{ backgroundColor: "var(--color-primary,#6366f1)" }}
+            aria-hidden="true"
           >
-            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+            {comment.author.charAt(0).toUpperCase()}
+          </div>
+          <span className="truncate text-xs font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>
+            {comment.author}
+          </span>
+          <span className="text-[10px] shrink-0" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+            {formatTimeAgo(comment.createdAt)}
+          </span>
         </div>
 
         {/* Body */}
@@ -206,7 +189,6 @@ function CommentNode({
               comment={reply}
               depth={depth + 1}
               onReply={onReply}
-              onDelete={onDelete}
               productId={productId}
             />
           ))}
@@ -223,39 +205,42 @@ export function CommentTree({ productId }: CommentTreeProps) {
 
   // Load comments
   useEffect(() => {
-    const all = getCommentsForProduct(productId);
-    setComments(all);
+    let cancelled = false;
+    getCommentsForProduct(productId).then((all) => {
+      if (!cancelled) setComments(all);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [productId, refreshKey]);
 
   // Seed demo comments if no comments exist
   useEffect(() => {
-    const existing = getCommentsForProduct(productId);
-    if (existing.length === 0) {
-      seedDemoComments(productId);
-      setRefreshKey((k) => k + 1);
-    }
+    let cancelled = false;
+    getCommentsForProduct(productId).then((existing) => {
+      if (cancelled || existing.length > 0) return;
+      seedDemoComments(productId).then(() => {
+        if (!cancelled) setRefreshKey((k) => k + 1);
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [productId]);
 
   const handleAddComment = useCallback(
     (author: string, body: string) => {
-      addComment(productId, author, body);
-      setRefreshKey((k) => k + 1);
+      addComment(productId, author, body).then(() => setRefreshKey((k) => k + 1));
     },
     [productId],
   );
 
   const handleReply = useCallback(
     (parentId: string, author: string, body: string) => {
-      replyToComment(parentId, author, body);
-      setRefreshKey((k) => k + 1);
+      replyToComment(parentId, author, body).then(() => setRefreshKey((k) => k + 1));
     },
     [],
   );
-
-  const handleDelete = useCallback((id: string) => {
-    deleteComment(id);
-    setRefreshKey((k) => k + 1);
-  }, []);
 
   return (
     <section
@@ -300,7 +285,6 @@ export function CommentTree({ productId }: CommentTreeProps) {
               comment={comment}
               depth={0}
               onReply={handleReply}
-              onDelete={handleDelete}
               productId={productId}
             />
           ))}

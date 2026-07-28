@@ -226,3 +226,39 @@ export const knowledgeRows = pgTable("knowledge_rows", {
 
 export type KnowledgeRowRow = typeof knowledgeRows.$inferSelect;
 export type NewKnowledgeRowRow = typeof knowledgeRows.$inferInsert;
+
+/**
+ * Single global, admin-managed promotions settings row (Step 26). Like
+ * knowledgeRows, this is not per-visitor state, so no ownerId column — the
+ * app always reads/writes the one row keyed by the fixed "global" id.
+ */
+export const promoSettings = pgTable("promo_settings", {
+  id: text("id").primaryKey(),
+  isPromoModuleEnabled: boolean("is_promo_module_enabled").notNull().default(false),
+  globalDiscountType: text("global_discount_type").notNull().default("percentage"), // percentage | flat | coupon
+  globalDiscountValue: doublePrecision("global_discount_value").notNull().default(20),
+  activeCouponCode: text("active_coupon_code").notNull().default("SAVE20"),
+  announcementText: text("announcement_text").notNull().default("🎉 20% off storewide!"),
+  couponFormatRestriction: text("coupon_format_restriction").default("all"), // all | ebook | audiobook | video
+});
+
+export type PromoSettingsRow = typeof promoSettings.$inferSelect;
+export type NewPromoSettingsRow = typeof promoSettings.$inferInsert;
+
+/**
+ * Public discussion comments on product pages (Step 26). Like knowledgeRows
+ * and promoSettings, this is global content — not per-visitor state — so
+ * there is deliberately no ownerId column. `author` is free text since no
+ * real user identity exists yet (Better Auth is still deferred).
+ */
+export const comments = pgTable("comments", {
+  id: text("id").primaryKey(),
+  productId: text("product_id").notNull(),
+  parentId: text("parent_id"), // null = top-level comment
+  author: text("author").notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type CommentRow = typeof comments.$inferSelect;
+export type NewCommentRow = typeof comments.$inferInsert;

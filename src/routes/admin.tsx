@@ -38,9 +38,16 @@ import {
   getPromoSettings,
   savePromoSettings,
   calculateDiscountedPrice,
+  DEFAULT_PROMO_SETTINGS,
   type PromoSettings,
   type PromoOverride,
 } from "~/data/promotions";
+import {
+  getCommentsForProduct,
+  deleteComment,
+  getProductsWithComments,
+  type Comment,
+} from "~/data/comments";
 import {
   hasKeyPair,
   generateKeyPair,
@@ -187,6 +194,9 @@ function AdminDashboard() {
 
       {/* Promotions & Discounts */}
       <PromotionsAdminSection />
+
+      {/* Comment Moderation */}
+      <CommentModerationSection />
 
       {/* Catalog Status Management */}
       <CatalogStatusManagement />
@@ -995,7 +1005,8 @@ function AffiliateAdminSection() {
 
 function PromotionsAdminSection() {
   const { t } = useLanguage();
-  const [settings, setSettings] = useState<PromoSettings>(getPromoSettings());
+  const [settings, setSettings] = useState<PromoSettings>(DEFAULT_PROMO_SETTINGS);
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [bulkCatalogs, setBulkCatalogs] = useState(getCatalogItems());
   const [bulkRefresh, setBulkRefresh] = useState(0);
@@ -1004,12 +1015,14 @@ function PromotionsAdminSection() {
   const [bulkOverrideValue, setBulkOverrideValue] = useState("20");
 
   useEffect(() => {
-    setSettings(getPromoSettings());
+    getPromoSettings().then(setSettings);
     setBulkCatalogs(getCatalogItems());
   }, [bulkRefresh]);
 
-  const handleSaveSettings = useCallback(() => {
-    savePromoSettings(settings);
+  const handleSaveSettings = useCallback(async () => {
+    setSaving(true);
+    await savePromoSettings(settings);
+    setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }, [settings]);
@@ -1181,10 +1194,11 @@ function PromotionsAdminSection() {
           <button
             type="button"
             onClick={handleSaveSettings}
-            className="rounded-lg px-5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110"
+            disabled={saving}
+            className="rounded-lg px-5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110 disabled:opacity-60"
             style={{ backgroundColor: "var(--color-primary,#6366f1)" }}
           >
-            {saved ? t("promo.saved") : t("promo.saveSettings")}
+            {saved ? t("promo.saved") : saving ? "..." : t("promo.saveSettings")}
           </button>
         </div>
       </div>
@@ -1305,6 +1319,130 @@ function PromotionsAdminSection() {
               </tbody>
             </table>
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Comment Moderation ─── */
+
+function AdminCommentNode({
+  comment,
+  depth,
+  onDelete,
+}: {
+  comment: Comment;
+  depth: number;
+  onDelete: (id: string) => void;
+}) {
+  const maxDepth = 5;
+  const indent = Math.min(depth, maxDepth);
+
+  return (
+    <div style={{ marginLeft: indent > 0 ? `${indent * 16}px` : "0" }}>
+      <div
+        className="mt-2 flex items-start justify-between gap-3 rounded-lg border p-3"
+        style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-bg,#0f172a)" }}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>{comment.author}</span>
+            <span className="text-[10px]" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+              {new Date(comment.createdAt).toLocaleString()}
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-relaxed whitespace-pre-wrap" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+            {comment.body}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onDelete(comment.id)}
+          className="shrink-0 rounded border border-red-800/50 px-2 py-0.5 text-[10px] text-red-400 transition-colors hover:bg-red-900/20"
+          aria-label={`Delete comment by ${comment.author}`}
+        >
+          Delete
+        </button>
+      </div>
+      {comment.replies.map((reply) => (
+        <AdminCommentNode key={reply.id} comment={reply} depth={depth + 1} onDelete={onDelete} />
+      ))}
+    </div>
+  );
+}
+
+function CommentModerationSection() {
+  const [productIds, setProductIds] = useState<string[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const [threads, setThreads] = useState<Comment[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    getProductsWithComments().then((ids) => {
+      setProductIds(ids);
+      setSelectedProductId((prev) => (prev && ids.includes(prev) ? prev : (ids[0] ?? "")));
+    });
+  }, [refreshKey]);
+
+  useEffect(() => {
+    if (!selectedProductId) {
+      setThreads([]);
+      return;
+    }
+    getCommentsForProduct(selectedProductId).then(setThreads);
+  }, [selectedProductId, refreshKey]);
+
+  const handleDelete = useCallback(async (id: string) => {
+    await deleteComment(id);
+    setRefreshKey((k) => k + 1);
+  }, []);
+
+  const totalComments = (list: Comment[]): number =>
+    list.reduce((sum, c) => sum + 1 + totalComments(c.replies), 0);
+
+  return (
+    <div className="mx-auto mt-10 max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
+      <h2 className="mb-1 text-lg font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>Comment Moderation</h2>
+      <p className="mb-6 text-sm" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+        Review and remove discussion comments from product pages. Deleting a top-level comment also removes its replies.
+      </p>
+
+      <div className="rounded-xl border p-5" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-surface,#1e293b)/30" }}>
+        {productIds.length === 0 ? (
+          <p className="text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>No comments yet.</p>
+        ) : (
+          <>
+            <div className="mb-4 flex items-center gap-3">
+              <label htmlFor="comment-product-select" className="text-xs font-medium" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+                Product
+              </label>
+              <select
+                id="comment-product-select"
+                value={selectedProductId}
+                onChange={(e) => setSelectedProductId(e.target.value)}
+                className="rounded-lg border px-3 py-2 text-xs"
+                style={{ backgroundColor: "var(--color-bg,#0f172a)", color: "var(--color-text,#f8fafc)", borderColor: "var(--color-border,#334155)" }}
+              >
+                {productIds.map((id) => (
+                  <option key={id} value={id}>{id}</option>
+                ))}
+              </select>
+              <span className="text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+                {totalComments(threads)} comment{totalComments(threads) === 1 ? "" : "s"}
+              </span>
+            </div>
+
+            {threads.length === 0 ? (
+              <p className="text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>No comments for this product.</p>
+            ) : (
+              <div role="list" aria-label="Comments">
+                {threads.map((comment) => (
+                  <AdminCommentNode key={comment.id} comment={comment} depth={0} onDelete={handleDelete} />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
