@@ -11,7 +11,7 @@ import { CommentTree } from "~/components/CommentTree";
 import { getPromoSettings } from "~/data/promotions";
 import { addToCart, getRecoveryPromoCode } from "~/data/cart";
 
-export const Route = createFileRoute("/product")({
+export const Route = createFileRoute("/product/$productId")({
   component: RouteComponent,
 });
 
