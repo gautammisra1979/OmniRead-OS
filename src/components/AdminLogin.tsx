@@ -1,6 +1,6 @@
 import { useState, type FormEvent, useCallback, useEffect } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { verifyRecoveryKey, generateRecoveryKey, getRecoveryKey, setAdminCredentials, hasRecoveryKey, getAdminCredentials } from "~/data/adminRecovery";
+import { verifyRecoveryKey, generateRecoveryKey, setAdminCredentials, hasRecoveryKey, getAdminCredentials } from "~/data/adminRecovery";
 
 const ADMIN_PASSWORD = "omnimeda-os-admin";
 
@@ -19,17 +19,12 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps) {
   const [newEmail, setNewEmail] = useState("");
   const [newPasscode, setNewPasscode] = useState("");
   const [newPasscodeConfirm, setNewPasscodeConfirm] = useState("");
-  const [showKey, setShowKey] = useState(false);
   const [masterKey, setMasterKey] = useState("");
-  const [keyRevealed, setKeyRevealed] = useState(false);
   const { t } = useLanguage();
 
   useEffect(() => {
     if (!hasRecoveryKey()) {
       generateRecoveryKey().then((key) => setMasterKey(key));
-    } else {
-      const stored = getRecoveryKey();
-      if (stored) setMasterKey(stored);
     }
   }, []);
 
@@ -70,10 +65,6 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps) {
     setRecoverySuccess(false);
     setRecoveryInput("");
   }, [newEmail, newPasscode, newPasscodeConfirm]);
-
-  const handleRevealKey = useCallback(() => {
-    setKeyRevealed(true);
-  }, []);
 
   return (
     <div className="flex min-h-[70vh] items-center justify-center px-4">
@@ -163,16 +154,7 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps) {
                   {t("admin.recovery.reset") ?? "Reset / Change Admin Credentials"}
                 </button>
 
-                {!keyRevealed ? (
-                  <button
-                    type="button"
-                    onClick={handleRevealKey}
-                    className="w-full text-center text-xs hover:opacity-80"
-                    style={{ color: "var(--color-text-muted)" }}
-                  >
-                    {t("admin.recovery.showKey") ?? "Show Master Recovery Key"}
-                  </button>
-                ) : (
+                {masterKey && (
                   <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-surface)" }}>
                     <p className="text-xs font-bold mb-1" style={{ color: "var(--color-text)" }}>
                       {t("admin.recovery.key") ?? "Your Master Recovery Key:"}

@@ -62,6 +62,7 @@ import {
   resetFeatureCache,
   type License,
 } from "~/data/licensing";
+import { getRecoveryKey } from "~/data/adminRecovery";
 import { dispatchLicenseChange } from "~/components/LicenseGate";
 import { DeveloperLicenseFactory } from "~/components/DeveloperLicenseFactory";
 import { OffboardingCenter } from "~/components/OffboardingCenter";
@@ -228,6 +229,9 @@ function AdminDashboard() {
         <StorageConsole />
       </div>
 
+      {/* Recovery Key */}
+      <RecoveryKeySection />
+
       {/* Platform Factory Reset */}
       <PlatformFactoryReset />
     </div>
@@ -282,6 +286,51 @@ function QuizAccordion({ question }: { question: QuizQuestion }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─── Recovery Key ─── */
+
+function RecoveryKeySection() {
+  const { t } = useLanguage();
+  const [revealed, setRevealed] = useState(false);
+  const [masterKey, setMasterKey] = useState("");
+
+  const handleReveal = useCallback(() => {
+    setMasterKey(getRecoveryKey() ?? "");
+    setRevealed(true);
+  }, []);
+
+  return (
+    <div className="mx-auto mt-10 max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
+      <h2 className="mb-1 text-lg font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>
+        {t("admin.recovery.key") ?? "Master Recovery Key"}
+      </h2>
+      <p className="mb-6 text-sm" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+        View the 12-word phrase used to reset admin credentials.
+      </p>
+      <div className="rounded-xl border p-5" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-surface,#1e293b)/30" }}>
+        {!revealed ? (
+          <button
+            type="button"
+            onClick={handleReveal}
+            className="rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110"
+            style={{ backgroundColor: "var(--color-primary,#6366f1)" }}
+          >
+            {t("admin.recovery.showKey") ?? "Show Master Recovery Key"}
+          </button>
+        ) : (
+          <div>
+            <p className="text-xs font-bold mb-1" style={{ color: "var(--color-text,#f8fafc)" }}>
+              {t("admin.recovery.key") ?? "Your Master Recovery Key:"}
+            </p>
+            <p className="text-sm font-mono leading-relaxed break-all" style={{ color: "var(--color-primary,#6366f1)" }}>
+              {masterKey}
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
