@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { promoSettings, type PromoSettingsRow } from "~/db/schema";
+import { requireAdmin } from "~/lib/requireAdmin";
 
 /**
  * Phase 4 (Step 26): DB-backed promotions settings, replacing the
@@ -82,6 +83,7 @@ const dbGetPromoSettings = createServerFn({ method: "GET" }).handler(
 const dbSavePromoSettings = createServerFn({ method: "POST" })
   .validator((settings: PromoSettings) => settings)
   .handler(async ({ data: settings }): Promise<void> => {
+    await requireAdmin();
     await db()
       .insert(promoSettings)
       .values({ id: PROMO_SETTINGS_ID, ...settings })

@@ -1,18 +1,49 @@
 /**
- * Self-Service Admin Recovery
- * BIP39-style 12-word recovery key for store owner credential recovery.
+ * Self-Service Admin Recovery — server-side (stopgap ahead of Better Auth).
  *
+ * Every function here runs inside a createServerFn handler backed by the
+ * adminAuth table (see src/db/schema.ts), not localStorage. That closes the
+ * gap where a login check enforced only in the browser could be bypassed by
+ * any request that hit these functions directly.
+ *
+ * BIP39-style 12-word recovery key for store owner credential recovery.
  * The admin passcode is stored as an argon2id hash (verify-only — there is
- * no way to recover the original passcode from storage), unlike the
- * recovery phrase above which was already hash-only via SHA-256.
+ * no way to recover the original passcode from storage). The recovery
+ * phrase is AES-GCM encrypted (not hashed), since the admin panel needs to
+ * re-display it later — see src/lib/recoveryCrypto.ts.
  */
 
+import { createServerFn } from "@tanstack/react-start";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/neon-http";
 import { argon2id, argon2Verify } from "hash-wasm";
+import { sql } from "~/db";
+import { adminAuth, type AdminAuthRow } from "~/db/schema";
+import { requireAdmin, issueAdminSession, clearAdminSession } from "~/lib/requireAdmin";
+import { encryptRecoveryPhrase, decryptRecoveryPhrase } from "~/lib/recoveryCrypto";
 
-const RECOVERY_HASH_KEY = "omnimedia_recovery_hash";
-const RECOVERY_PLAINTEXT_KEY = "omnimedia_recovery_plaintext";
-const ADMIN_EMAIL_KEY = "omnimedia_admin_email";
-const ADMIN_PASSCODE_HASH_KEY = "omnimedia_admin_passcode_hash";
+const ADMIN_AUTH_ID = "global";
+
+// Fallback passcode for a brand-new deployment that has never set its own
+// credentials yet (no passcodeHash stored). Once real credentials are set,
+// this fallback stops being accepted.
+const DEFAULT_ADMIN_PASSCODE = "omnimeda-os-admin";
+
+function db() {
+  return drizzle(sql());
+}
+
+async function getRow(): Promise<AdminAuthRow | null> {
+  const rows = await db().select().from(adminAuth).where(eq(adminAuth.id, ADMIN_AUTH_ID));
+  return rows[0] ?? null;
+}
+
+async function upsertRow(values: Partial<Omit<AdminAuthRow, "id">>): Promise<void> {
+  await db()
+    .insert(adminAuth)
+    .values({ id: ADMIN_AUTH_ID, ...values })
+    .onConflictDoUpdate({ target: adminAuth.id, set: values });
+}
 
 // BIP39-style 12-word list (simplified subset)
 const WORD_LIST = [
@@ -265,39 +296,8 @@ function generateSeed(): string[] {
   return words;
 }
 
-async function hashWordList(words: string[]): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(words.join(" "));
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-export async function generateRecoveryKey(): Promise<string> {
-  const words = generateSeed();
-  const plaintext = words.join(" ");
-  const hash = await hashWordList(words);
-  if (typeof window !== "undefined") {
-    localStorage.setItem(RECOVERY_HASH_KEY, hash);
-    localStorage.setItem(RECOVERY_PLAINTEXT_KEY, plaintext);
-  }
-  return plaintext;
-}
-
-export function getRecoveryKey(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(RECOVERY_PLAINTEXT_KEY);
-}
-
-export async function verifyRecoveryKey(input: string): Promise<boolean> {
-  if (typeof window === "undefined") return false;
-  const storedHash = localStorage.getItem(RECOVERY_HASH_KEY);
-  if (!storedHash) return false;
-  const words = input.trim().toLowerCase().split(/\s+/);
-  if (words.length !== 12) return false;
-  const hash = await hashWordList(words);
-  return hash === storedHash;
+function normalizePhrase(input: string): string {
+  return input.trim().toLowerCase().split(/\s+/).join(" ");
 }
 
 async function hashPasscode(passcode: string): Promise<string> {
@@ -313,34 +313,172 @@ async function hashPasscode(passcode: string): Promise<string> {
   });
 }
 
-export async function setAdminCredentials(email: string, passcode: string): Promise<void> {
-  if (typeof window === "undefined") return;
-  const hash = await hashPasscode(passcode);
-  localStorage.setItem(ADMIN_EMAIL_KEY, email);
-  localStorage.setItem(ADMIN_PASSCODE_HASH_KEY, hash);
-}
+/* ─── Server functions ─── */
 
-export function hasAdminCredentials(): boolean {
-  if (typeof window === "undefined") return false;
-  return !!localStorage.getItem(ADMIN_PASSCODE_HASH_KEY);
-}
+const dbHasAdminCredentials = createServerFn({ method: "GET" }).handler(
+  async (): Promise<boolean> => {
+    const row = await getRow();
+    return !!row?.passcodeHash;
+  },
+);
+
+const dbVerifyAdminPasscode = createServerFn({ method: "POST" })
+  .validator((passcode: string) => passcode)
+  .handler(async ({ data: passcode }): Promise<boolean> => {
+    const row = await getRow();
+    if (!row?.passcodeHash) return false;
+    try {
+      return await argon2Verify({ password: passcode, hash: row.passcodeHash });
+    } catch {
+      return false;
+    }
+  });
 
 /**
- * Verify-only: there is no way to recover the stored passcode, only to
- * check whether a candidate passcode matches the stored hash.
+ * Verifies the passcode and, on success, issues the signed admin session
+ * cookie — the actual login handler. Falls back to a hardcoded default
+ * passcode only when no credentials have been set yet (fresh install).
  */
-export async function verifyAdminPasscode(passcode: string): Promise<boolean> {
-  if (typeof window === "undefined") return false;
-  const hash = localStorage.getItem(ADMIN_PASSCODE_HASH_KEY);
-  if (!hash) return false;
-  try {
-    return await argon2Verify({ password: passcode, hash });
-  } catch {
-    return false;
-  }
+const dbLoginAdmin = createServerFn({ method: "POST" })
+  .validator((passcode: string) => passcode)
+  .handler(async ({ data: passcode }): Promise<boolean> => {
+    const row = await getRow();
+    const valid = row?.passcodeHash
+      ? await argon2Verify({ password: passcode, hash: row.passcodeHash })
+      : passcode === DEFAULT_ADMIN_PASSCODE;
+    if (valid) await issueAdminSession();
+    return valid;
+  });
+
+const dbLogoutAdmin = createServerFn({ method: "POST" }).handler(async (): Promise<void> => {
+  clearAdminSession();
+});
+
+/**
+ * Sets new admin credentials. Two independent proofs of authorization are
+ * accepted — checked in this same call, not a separate prior step, so there
+ * is no unauthenticated "set credentials" request an attacker could hit
+ * directly without ever proving either:
+ *   1. an existing, valid admin session (changing your own credentials
+ *      from inside the admin panel), or
+ *   2. possession of the current recovery phrase (the locked-out path).
+ */
+const dbSetAdminCredentials = createServerFn({ method: "POST" })
+  .validator((input: { email: string; passcode: string; recoveryPhrase?: string }) => input)
+  .handler(async ({ data }): Promise<void> => {
+    let authorized = true;
+    try {
+      await requireAdmin();
+    } catch {
+      authorized = false;
+    }
+
+    if (!authorized) {
+      const row = await getRow();
+      const stored = row?.recoveryEncrypted ? await decryptRecoveryPhrase(row.recoveryEncrypted) : null;
+      const candidate = data.recoveryPhrase ? normalizePhrase(data.recoveryPhrase) : null;
+      if (!stored || !candidate || candidate !== stored) {
+        throw new Error("Not authorized to change admin credentials.");
+      }
+    }
+
+    const passcodeHash = await hashPasscode(data.passcode);
+    await upsertRow({ email: data.email, passcodeHash });
+  });
+
+const dbHasRecoveryKey = createServerFn({ method: "GET" }).handler(
+  async (): Promise<boolean> => {
+    const row = await getRow();
+    return !!row?.recoveryEncrypted;
+  },
+);
+
+/**
+ * Generates a new recovery phrase. Unrestricted only for a fresh install
+ * that has no recovery phrase yet (bootstrap). Once one exists, only an
+ * authenticated admin may rotate it — otherwise anyone could hit this
+ * endpoint directly and silently replace the owner's recovery phrase with
+ * one only they know, then use it to take over the account.
+ */
+const dbGenerateRecoveryKey = createServerFn({ method: "POST" }).handler(
+  async (): Promise<string> => {
+    const row = await getRow();
+    if (row?.recoveryEncrypted) {
+      await requireAdmin();
+    }
+    const words = generateSeed();
+    const plaintext = words.join(" ");
+    const recoveryEncrypted = await encryptRecoveryPhrase(plaintext);
+    await upsertRow({ recoveryEncrypted });
+    return plaintext;
+  },
+);
+
+const dbVerifyRecoveryKey = createServerFn({ method: "POST" })
+  .validator((input: string) => input)
+  .handler(async ({ data: input }): Promise<boolean> => {
+    const row = await getRow();
+    if (!row?.recoveryEncrypted) return false;
+    const stored = await decryptRecoveryPhrase(row.recoveryEncrypted);
+    if (!stored) return false;
+    const words = input.trim().toLowerCase().split(/\s+/);
+    if (words.length !== 12) return false;
+    return normalizePhrase(input) === stored;
+  });
+
+/**
+ * Reveals the plaintext recovery phrase. Server-only, and only meant to be
+ * called from the already-authenticated recovery-key-reveal flow in
+ * admin.tsx — never expose this to an unauthenticated caller.
+ */
+const dbGetRecoveryKey = createServerFn({ method: "GET" }).handler(
+  async (): Promise<string | null> => {
+    await requireAdmin();
+    const row = await getRow();
+    if (!row?.recoveryEncrypted) return null;
+    return decryptRecoveryPhrase(row.recoveryEncrypted);
+  },
+);
+
+/* ─── Public API ─── */
+
+export async function hasAdminCredentials(): Promise<boolean> {
+  return dbHasAdminCredentials();
 }
 
-export function hasRecoveryKey(): boolean {
-  if (typeof window === "undefined") return false;
-  return !!localStorage.getItem(RECOVERY_HASH_KEY);
+export async function verifyAdminPasscode(passcode: string): Promise<boolean> {
+  return dbVerifyAdminPasscode({ data: passcode });
+}
+
+/** Verifies the passcode and, on success, establishes the admin session. */
+export async function loginAdmin(passcode: string): Promise<boolean> {
+  return dbLoginAdmin({ data: passcode });
+}
+
+export async function logoutAdmin(): Promise<void> {
+  return dbLogoutAdmin();
+}
+
+export async function setAdminCredentials(
+  email: string,
+  passcode: string,
+  recoveryPhrase?: string,
+): Promise<void> {
+  return dbSetAdminCredentials({ data: { email, passcode, recoveryPhrase } });
+}
+
+export async function hasRecoveryKey(): Promise<boolean> {
+  return dbHasRecoveryKey();
+}
+
+export async function generateRecoveryKey(): Promise<string> {
+  return dbGenerateRecoveryKey();
+}
+
+export async function verifyRecoveryKey(input: string): Promise<boolean> {
+  return dbVerifyRecoveryKey({ data: input });
+}
+
+export async function getRecoveryKey(): Promise<string | null> {
+  return dbGetRecoveryKey();
 }

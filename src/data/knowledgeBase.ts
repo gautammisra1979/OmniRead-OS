@@ -5,6 +5,7 @@ import { and, eq, ilike, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { knowledgeRows, type KnowledgeRowRow } from "~/db/schema";
+import { requireAdmin } from "~/lib/requireAdmin";
 
 /**
  * Phase 1 (Step 26): DB-backed AI Librarian knowledge base, replacing the
@@ -53,6 +54,7 @@ const dbGetKnowledgeBase = createServerFn({ method: "GET" }).handler(
 const dbSaveKnowledgeRow = createServerFn({ method: "POST" })
   .validator((row: KnowledgeRow) => row)
   .handler(async ({ data: row }): Promise<void> => {
+    await requireAdmin();
     await db()
       .insert(knowledgeRows)
       .values({
@@ -76,6 +78,7 @@ const dbSaveKnowledgeRow = createServerFn({ method: "POST" })
 const dbDeleteKnowledgeRow = createServerFn({ method: "POST" })
   .validator((id: string) => id)
   .handler(async ({ data: id }): Promise<void> => {
+    await requireAdmin();
     await db().delete(knowledgeRows).where(eq(knowledgeRows.id, id));
   });
 
@@ -89,6 +92,7 @@ const dbGetKnowledgeForBook = createServerFn({ method: "GET" })
 const dbUpsertKnowledgeRows = createServerFn({ method: "POST" })
   .validator((rows: KnowledgeRow[]) => rows)
   .handler(async ({ data: rows }): Promise<void> => {
+    await requireAdmin();
     if (rows.length === 0) return;
     const bookId = rows[0].book_id;
     const database = db();

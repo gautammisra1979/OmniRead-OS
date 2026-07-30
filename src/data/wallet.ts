@@ -6,6 +6,7 @@ import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { wallet as walletTable, type WalletRow } from "~/db/schema";
 import { getOrCreateOwnerId } from "~/lib/ownerId";
+import { requireAdmin } from "~/lib/requireAdmin";
 
 /**
  * Phase 3 (Step 26): DB-backed wallet, replacing the localStorage version.
@@ -159,6 +160,7 @@ const dbGetCostPer1K = createServerFn({ method: "GET" }).handler(
 const dbSaveCostPer1K = createServerFn({ method: "POST" })
   .validator((cost: number) => cost)
   .handler(async ({ data: cost }): Promise<void> => {
+    await requireAdmin();
     const clamped = Math.min(0.05, Math.max(0, cost));
     await upsertWallet(getOrCreateOwnerId(), { costPer1K: String(clamped) });
   });

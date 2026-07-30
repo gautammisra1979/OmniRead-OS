@@ -277,3 +277,26 @@ export const licenseSettings = pgTable("license_settings", {
 
 export type LicenseSettingsRow = typeof licenseSettings.$inferSelect;
 export type NewLicenseSettingsRow = typeof licenseSettings.$inferInsert;
+
+/**
+ * Single global admin-credentials row (stopgap ahead of Better Auth). Same
+ * shape as promoSettings/licenseSettings — no ownerId, one row keyed by the
+ * fixed "global" id.
+ *
+ * `passcodeHash` is a verify-only argon2id hash — never reversible.
+ * `recoveryEncrypted` deliberately is NOT a hash: the recovery phrase must
+ * stay re-viewable from the admin panel after initial setup (a real
+ * requirement, not an oversight), so it's AES-GCM encrypted at rest using a
+ * server-only key (`RECOVERY_ENCRYPTION_KEY`, see src/lib/recoveryCrypto.ts)
+ * instead of stored in plaintext. See src/data/adminRecovery.ts and
+ * src/lib/requireAdmin.ts.
+ */
+export const adminAuth = pgTable("admin_auth", {
+  id: text("id").primaryKey(), // fixed "global" row
+  email: text("email"),
+  passcodeHash: text("passcode_hash"),
+  recoveryEncrypted: text("recovery_encrypted"),
+});
+
+export type AdminAuthRow = typeof adminAuth.$inferSelect;
+export type NewAdminAuthRow = typeof adminAuth.$inferInsert;

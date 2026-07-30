@@ -3,6 +3,7 @@ import { eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { comments, type CommentRow } from "~/db/schema";
+import { requireAdmin } from "~/lib/requireAdmin";
 
 /**
  * Phase 5 (Step 26): DB-backed discussion comments, replacing the
@@ -131,6 +132,7 @@ const dbReplyToComment = createServerFn({ method: "POST" })
 const dbDeleteComment = createServerFn({ method: "POST" })
   .validator((commentId: string) => commentId)
   .handler(async ({ data: commentId }): Promise<void> => {
+    await requireAdmin();
     const database = db();
     const targetRows = await database.select().from(comments).where(eq(comments.id, commentId));
     const target = targetRows[0];

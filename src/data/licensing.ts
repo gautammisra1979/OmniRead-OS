@@ -15,6 +15,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { licenseSettings } from "~/db/schema";
+import { requireAdmin } from "~/lib/requireAdmin";
 
 export type LicenseTier = "standard" | "premium";
 
@@ -47,6 +48,7 @@ const dbGetLicenseTier = createServerFn({ method: "GET" }).handler(
 const dbSetLicenseTier = createServerFn({ method: "POST" })
   .validator((tier: LicenseTier) => tier)
   .handler(async ({ data: tier }): Promise<void> => {
+    await requireAdmin();
     await db()
       .insert(licenseSettings)
       .values({ id: LICENSE_SETTINGS_ID, tier })

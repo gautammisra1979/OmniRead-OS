@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { downloads, type DownloadRow, type NewDownloadRow } from "~/db/schema";
 import { getOrCreateOwnerId } from "~/lib/ownerId";
+import { requireAdmin } from "~/lib/requireAdmin";
 
 /**
  * Phase 3 (Step 26): DB-backed download ledger, replacing the localStorage
@@ -161,6 +162,7 @@ const dbIncrementDownloadCount = createServerFn({ method: "POST" })
 const dbMarkDownloadsRefunded = createServerFn({ method: "POST" })
   .validator((sessionId: string) => sessionId)
   .handler(async ({ data: sessionId }): Promise<void> => {
+    await requireAdmin();
     const ownerId = getOrCreateOwnerId();
     await db()
       .update(downloads)

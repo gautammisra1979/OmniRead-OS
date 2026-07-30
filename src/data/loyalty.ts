@@ -9,6 +9,7 @@ import {
   type LoyaltyLedgerRow,
 } from "~/db/schema";
 import { getOrCreateOwnerId } from "~/lib/ownerId";
+import { requireAdmin } from "~/lib/requireAdmin";
 
 /**
  * Phase 3 (Step 26): DB-backed loyalty config + ledger, replacing the
@@ -130,12 +131,14 @@ const dbGetConfig = createServerFn({ method: "GET" })
 const dbSaveDraftConfig = createServerFn({ method: "POST" })
   .validator((config: LoyaltyConfig) => config)
   .handler(async ({ data: config }): Promise<void> => {
+    await requireAdmin();
     await upsertConfig(getOrCreateOwnerId(), "draft", config);
   });
 
 const dbPublishConfig = createServerFn({ method: "POST" })
   .validator((config: LoyaltyConfig) => config)
   .handler(async ({ data: config }): Promise<void> => {
+    await requireAdmin();
     await upsertConfig(getOrCreateOwnerId(), "published", config);
   });
 

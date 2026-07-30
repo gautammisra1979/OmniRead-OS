@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { refundClaims, type RefundClaimRow } from "~/db/schema";
 import { getOrCreateOwnerId } from "~/lib/ownerId";
+import { requireAdmin } from "~/lib/requireAdmin";
 
 /**
  * Phase 1 (Step 26): DB-backed refund claims, replacing the localStorage
@@ -97,6 +98,7 @@ const dbResolveRefundClaim = createServerFn({ method: "POST" })
     (input: { id: string; status: "approved" | "rejected"; adminNotes?: string }) => input,
   )
   .handler(async ({ data: input }): Promise<RefundClaim | null> => {
+    await requireAdmin();
     const ownerId = getOrCreateOwnerId();
     const [row] = await db()
       .update(refundClaims)

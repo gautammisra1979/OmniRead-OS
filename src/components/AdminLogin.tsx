@@ -1,8 +1,6 @@
 import { useState, type FormEvent, useCallback, useEffect } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { verifyRecoveryKey, generateRecoveryKey, setAdminCredentials, hasRecoveryKey, hasAdminCredentials, verifyAdminPasscode } from "~/data/adminRecovery";
-
-const ADMIN_PASSWORD = "omnimeda-os-admin";
+import { verifyRecoveryKey, generateRecoveryKey, setAdminCredentials, hasRecoveryKey, loginAdmin } from "~/data/adminRecovery";
 
 interface AdminLoginProps {
   onAuthenticated: () => void;
@@ -30,9 +28,11 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps) {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const valid = hasAdminCredentials()
-      ? await verifyAdminPasscode(password)
-      : password === ADMIN_PASSWORD;
+    // loginAdmin verifies the passcode server-side and, on success, sets the
+    // signed session cookie that every admin-mutating server function now
+    // checks — that cookie is the real security boundary, not this call's
+    // return value.
+    const valid = await loginAdmin(password);
     if (valid) {
       onAuthenticated();
     } else {
@@ -58,14 +58,14 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps) {
       setRecoveryError("Passcodes do not match.");
       return;
     }
-    await setAdminCredentials(newEmail.trim(), newPasscode);
+    await setAdminCredentials(newEmail.trim(), newPasscode, recoveryInput.trim());
     setShowNewCreds(false);
     setShowRecovery(false);
     // Show success message briefly
     setPassword(newPasscode);
     setRecoverySuccess(false);
     setRecoveryInput("");
-  }, [newEmail, newPasscode, newPasscodeConfirm]);
+  }, [newEmail, newPasscode, newPasscodeConfirm, recoveryInput]);
 
   return (
     <div className="flex min-h-[70vh] items-center justify-center px-4">

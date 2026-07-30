@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { catalogItems, type CatalogItemRow } from "~/db/schema";
 import type { CatalogItem, CatalogStatus } from "~/data/catalog";
+import { requireAdmin } from "~/lib/requireAdmin";
 
 /**
  * Phase 2 (Step 26), first slice: async query functions backed by Drizzle +
@@ -141,6 +142,7 @@ export const createCatalogItem = createServerFn({ method: "POST" })
     }) => input,
   )
   .handler(async ({ data }): Promise<CatalogItem> => {
+    await requireAdmin();
     const [row] = await db()
       .insert(catalogItems)
       .values({
@@ -169,12 +171,14 @@ export const createCatalogItem = createServerFn({ method: "POST" })
 export const deleteCatalogItem = createServerFn({ method: "POST" })
   .validator((id: string) => id)
   .handler(async ({ data: id }): Promise<void> => {
+    await requireAdmin();
     await db().delete(catalogItems).where(eq(catalogItems.id, id));
   });
 
 export const updateCatalogStatus = createServerFn({ method: "POST" })
   .validator((input: { id: string; status: CatalogStatus }) => input)
   .handler(async ({ data }): Promise<void> => {
+    await requireAdmin();
     await db()
       .update(catalogItems)
       .set({ status: data.status })
@@ -186,6 +190,7 @@ export const updateCatalogRating = createServerFn({ method: "POST" })
     (input: { id: string; rating: number; reviewCount?: number }) => input,
   )
   .handler(async ({ data }): Promise<void> => {
+    await requireAdmin();
     const clamped = Math.max(0, Math.min(5, data.rating));
     await db()
       .update(catalogItems)

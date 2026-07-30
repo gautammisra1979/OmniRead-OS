@@ -53,7 +53,7 @@ import {
   setLicenseTier,
   type LicenseTier,
 } from "~/data/licensing";
-import { getRecoveryKey } from "~/data/adminRecovery";
+import { getRecoveryKey, logoutAdmin } from "~/data/adminRecovery";
 import { dispatchLicenseChange } from "~/components/LicenseGate";
 import { OffboardingCenter } from "~/components/OffboardingCenter";
 import { RefundClaimsManager } from "~/components/RefundClaimsManager";
@@ -85,8 +85,21 @@ function AdminDashboard() {
   }, []);
 
   const handleAuth = () => {
+    // sessionStorage is a UI-only convenience so this component can
+    // instantly show the dashboard — it is NOT the security boundary.
+    // The signed session cookie set by loginAdmin() is what every
+    // admin-mutating server function actually checks via requireAdmin().
     sessionStorage.setItem("omnimeda_admin_auth", "true");
     setAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    sessionStorage.removeItem("omnimeda_admin_auth");
+    setAuthenticated(false);
+    // Clear the real server-side session cookie too — without this, the
+    // signed cookie stays valid (up to its 12h max age) even after the
+    // client-side "logout", and every admin action would still succeed.
+    logoutAdmin();
   };
 
   if (!authenticated) {
@@ -112,10 +125,7 @@ function AdminDashboard() {
 
           <button
             type="button"
-            onClick={() => {
-              sessionStorage.removeItem("omnimeda_admin_auth");
-              setAuthenticated(false);
-            }}
+            onClick={handleLogout}
             className="flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors hover:opacity-80"
             style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}
             aria-label="Logout of admin panel"
@@ -264,10 +274,22 @@ function RecoveryKeySection() {
   const { t } = useLanguage();
   const [revealed, setRevealed] = useState(false);
   const [masterKey, setMasterKey] = useState("");
+  const [error, setError] = useState("");
 
-  const handleReveal = useCallback(() => {
-    setMasterKey(getRecoveryKey() ?? "");
-    setRevealed(true);
+  // getRecoveryKey() calls requireAdmin() server-side — this is the actual
+  // security boundary. The sessionStorage flag that gates whether this
+  // section even renders is a client-side UI convenience only; if the
+  // signed session cookie has expired or is missing, this call rejects
+  // regardless of what the local admin UI thinks its auth state is.
+  const handleReveal = useCallback(async () => {
+    setError("");
+    try {
+      const key = await getRecoveryKey();
+      setMasterKey(key ?? "");
+      setRevealed(true);
+    } catch {
+      setError("Your admin session has expired or is invalid — please log out and back in.");
+    }
   }, []);
 
   return (
@@ -280,14 +302,19 @@ function RecoveryKeySection() {
       </p>
       <div className="rounded-xl border p-5" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-surface,#1e293b)/30" }}>
         {!revealed ? (
-          <button
-            type="button"
-            onClick={handleReveal}
-            className="rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110"
-            style={{ backgroundColor: "var(--color-primary,#6366f1)" }}
-          >
-            {t("admin.recovery.showKey") ?? "Show Master Recovery Key"}
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={handleReveal}
+              className="rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110"
+              style={{ backgroundColor: "var(--color-primary,#6366f1)" }}
+            >
+              {t("admin.recovery.showKey") ?? "Show Master Recovery Key"}
+            </button>
+            {error && (
+              <p className="mt-2 text-xs text-red-400" role="alert">{error}</p>
+            )}
+          </>
         ) : (
           <div>
             <p className="text-xs font-bold mb-1" style={{ color: "var(--color-text,#f8fafc)" }}>
@@ -1722,58 +1749,76 @@ function LicenseTierSection() {
   const { t } = useLanguage();
   const [tier, setTier] = useState<LicenseTier>("standard");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     getLicenseTier().then(setTier);
   }, []);
 
+  // setLicenseTier() calls requireAdmin() server-side — the real gate.
+  // sessionStorage only controls whether this control even renders; if the
+  // signed session cookie is missing or expired, this call rejects and the
+  // optimistic UI update below is rolled back.
   const handleChange = useCallback(async (next: LicenseTier) => {
+    setError("");
+    const previous = tier;
     setTier(next);
     setSaving(true);
-    await setLicenseTier(next);
-    setSaving(false);
-    dispatchLicenseChange();
-  }, []);
+    try {
+      await setLicenseTier(next);
+      dispatchLicenseChange();
+    } catch {
+      setTier(previous);
+      setError("Your admin session has expired or is invalid — please log out and back in.");
+    } finally {
+      setSaving(false);
+    }
+  }, [tier]);
 
   const isPremium = tier === "premium";
 
   return (
-    <div
-      className="flex items-center gap-3 rounded-lg border px-4 py-3"
-      style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "color-mix(in srgb, var(--color-surface,#1e293b) 30%, transparent)" }}
-    >
-      <div className="flex h-8 w-8 items-center justify-center rounded-full" style={{ backgroundColor: "color-mix(in srgb, var(--color-primary,#6366f1) 20%, transparent)" }} aria-hidden="true">
-        <svg className="h-4 w-4" style={{ color: "var(--color-primary,#6366f1)" }} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      </div>
-      <div className="flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>{t("license.adminTitle") ?? "License Tier"}</span>
-          <span
-            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-              isPremium ? "bg-emerald-900/30 text-emerald-400" : "bg-amber-900/30 text-amber-400"
-            }`}
-          >
-            <span className={`mr-1 h-1.5 w-1.5 rounded-full ${isPremium ? "bg-emerald-400" : "bg-amber-400"}`} aria-hidden="true" />
-            {isPremium ? t("license.allFeatures") : t("license.inactive")}
-          </span>
-        </div>
-      </div>
-      <label htmlFor="license-tier-select" className="sr-only">
-        {t("license.adminTitle") ?? "License Tier"}
-      </label>
-      <select
-        id="license-tier-select"
-        value={tier}
-        disabled={saving}
-        onChange={(e) => handleChange(e.target.value as LicenseTier)}
-        className="rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
-        style={{ backgroundColor: "var(--color-bg)", color: "var(--color-text)", borderColor: "var(--color-border)" }}
+    <div>
+      <div
+        className="flex items-center gap-3 rounded-lg border px-4 py-3"
+        style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "color-mix(in srgb, var(--color-surface,#1e293b) 30%, transparent)" }}
       >
-        <option value="standard">Standard</option>
-        <option value="premium">Premium</option>
-      </select>
+        <div className="flex h-8 w-8 items-center justify-center rounded-full" style={{ backgroundColor: "color-mix(in srgb, var(--color-primary,#6366f1) 20%, transparent)" }} aria-hidden="true">
+          <svg className="h-4 w-4" style={{ color: "var(--color-primary,#6366f1)" }} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>{t("license.adminTitle") ?? "License Tier"}</span>
+            <span
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                isPremium ? "bg-emerald-900/30 text-emerald-400" : "bg-amber-900/30 text-amber-400"
+              }`}
+            >
+              <span className={`mr-1 h-1.5 w-1.5 rounded-full ${isPremium ? "bg-emerald-400" : "bg-amber-400"}`} aria-hidden="true" />
+              {isPremium ? t("license.allFeatures") : t("license.inactive")}
+            </span>
+          </div>
+        </div>
+        <label htmlFor="license-tier-select" className="sr-only">
+          {t("license.adminTitle") ?? "License Tier"}
+        </label>
+        <select
+          id="license-tier-select"
+          value={tier}
+          disabled={saving}
+          onChange={(e) => handleChange(e.target.value as LicenseTier)}
+          className="rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
+          style={{ backgroundColor: "var(--color-bg)", color: "var(--color-text)", borderColor: "var(--color-border)" }}
+        >
+          <option value="standard">Standard</option>
+          <option value="premium">Premium</option>
+        </select>
+      </div>
+      {error && (
+        <p className="mt-2 text-xs text-red-400" role="alert">{error}</p>
+      )}
     </div>
   );
 }
