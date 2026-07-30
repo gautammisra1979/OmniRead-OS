@@ -43,7 +43,6 @@ export function NavBar({ onCartOpen, cartCount = 0 }: { onCartOpen?: () => void;
         <div className="flex items-center gap-4 text-sm font-bold">
           <nav className="hidden lg:flex items-center gap-4">
             <a href="/downloads" className="hover:underline text-black">{t("nav.downloads") ?? "Downloads"}</a>
-            <a href="/activate" className="hover:underline text-black">{t("nav.activate") ?? "Activate"}</a>
             <a href="/admin" className="hover:underline text-black">{t("nav.admin") ?? "Admin"}</a>
           </nav>
 

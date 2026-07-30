@@ -49,22 +49,12 @@ import {
   type Comment,
 } from "~/data/comments";
 import {
-  hasKeyPair,
-  generateKeyPair,
-  getKeyPair,
-  getLicenses,
-  issueLicense,
-  revokeLicense,
-  deleteLicense,
-  exportLicenseToken,
-  seedDemoLicense,
-  getLicenseById,
-  resetFeatureCache,
-  type License,
+  getLicenseTier,
+  setLicenseTier,
+  type LicenseTier,
 } from "~/data/licensing";
 import { getRecoveryKey } from "~/data/adminRecovery";
 import { dispatchLicenseChange } from "~/components/LicenseGate";
-import { DeveloperLicenseFactory } from "~/components/DeveloperLicenseFactory";
 import { OffboardingCenter } from "~/components/OffboardingCenter";
 import { RefundClaimsManager } from "~/components/RefundClaimsManager";
 import { PlatformFactoryReset } from "~/components/PlatformFactoryReset";
@@ -138,28 +128,9 @@ function AdminDashboard() {
         </div>
       </div>
 
-      {/* License Status Readout */}
+      {/* License Tier Setting */}
       <div className="mx-auto mt-4 max-w-6xl px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-3 rounded-lg border px-4 py-3" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "color-mix(in srgb, var(--color-surface,#1e293b) 30%, transparent)" }}>
-          <div className="flex h-8 w-8 items-center justify-center rounded-full" style={{ backgroundColor: "color-mix(in srgb, var(--color-primary,#6366f1) 20%, transparent)" }} aria-hidden="true">
-            <svg className="h-4 w-4" style={{ color: "var(--color-primary,#6366f1)" }} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>{t("license.adminTitle") ?? "License Status"}</span>
-              <LicenseStatusBadge />
-            </div>
-          </div>
-          <a
-            href="/activate"
-            className="rounded-lg px-3 py-1.5 text-[10px] font-semibold text-white shadow-sm transition-all hover:brightness-110"
-            style={{ backgroundColor: "var(--color-primary,#6366f1)" }}
-          >
-            {t("license.activate")}
-          </a>
-        </div>
+        <LicenseTierSection />
       </div>
 
       <FeatureSwitchboard />
@@ -214,9 +185,6 @@ function AdminDashboard() {
       <CatalogAccessControl />
       <DisclaimerConfigSection />
       <InfoModalConfigSection />
-
-      {/* Developer License Factory */}
-      <DeveloperLicenseFactorySection />
 
       {/* Offboarding Control Center */}
       <OffboardingCenter />
@@ -1749,36 +1717,63 @@ function StorefrontLayoutSettings() {
   );
 }
 
-/* ─── License Status Badge ─── */
-function LicenseStatusBadge() {
-  const [licenses, setLicenses] = useState<License[]>([]);
-  useEffect(() => { setLicenses(getLicenses()); }, []);
+/* ─── License Tier Section ─── */
+function LicenseTierSection() {
   const { t } = useLanguage();
+  const [tier, setTier] = useState<LicenseTier>("standard");
+  const [saving, setSaving] = useState(false);
 
-  const validLicenses = licenses.filter(
-    (l) => !l.revoked && new Date(l.expiresAt) > new Date()
-  );
-  const hasActive = validLicenses.length > 0;
-  const hasAllFeatures = validLicenses.some((l) => l.features.includes("all"));
+  useEffect(() => {
+    getLicenseTier().then(setTier);
+  }, []);
 
-  const statusClass = hasActive
-    ? "bg-emerald-900/30 text-emerald-400"
-    : "bg-amber-900/30 text-amber-400";
-  const statusText = hasActive
-    ? hasAllFeatures
-      ? t("license.allFeatures")
-      : t("license.active")
-    : t("license.inactive");
+  const handleChange = useCallback(async (next: LicenseTier) => {
+    setTier(next);
+    setSaving(true);
+    await setLicenseTier(next);
+    setSaving(false);
+    dispatchLicenseChange();
+  }, []);
+
+  const isPremium = tier === "premium";
 
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusClass}`}>
-      <span className={`mr-1 h-1.5 w-1.5 rounded-full ${hasActive ? "bg-emerald-400" : "bg-amber-400"}`} aria-hidden="true" />
-      {statusText}
-    </span>
+    <div
+      className="flex items-center gap-3 rounded-lg border px-4 py-3"
+      style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "color-mix(in srgb, var(--color-surface,#1e293b) 30%, transparent)" }}
+    >
+      <div className="flex h-8 w-8 items-center justify-center rounded-full" style={{ backgroundColor: "color-mix(in srgb, var(--color-primary,#6366f1) 20%, transparent)" }} aria-hidden="true">
+        <svg className="h-4 w-4" style={{ color: "var(--color-primary,#6366f1)" }} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      </div>
+      <div className="flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>{t("license.adminTitle") ?? "License Tier"}</span>
+          <span
+            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+              isPremium ? "bg-emerald-900/30 text-emerald-400" : "bg-amber-900/30 text-amber-400"
+            }`}
+          >
+            <span className={`mr-1 h-1.5 w-1.5 rounded-full ${isPremium ? "bg-emerald-400" : "bg-amber-400"}`} aria-hidden="true" />
+            {isPremium ? t("license.allFeatures") : t("license.inactive")}
+          </span>
+        </div>
+      </div>
+      <label htmlFor="license-tier-select" className="sr-only">
+        {t("license.adminTitle") ?? "License Tier"}
+      </label>
+      <select
+        id="license-tier-select"
+        value={tier}
+        disabled={saving}
+        onChange={(e) => handleChange(e.target.value as LicenseTier)}
+        className="rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
+        style={{ backgroundColor: "var(--color-bg)", color: "var(--color-text)", borderColor: "var(--color-border)" }}
+      >
+        <option value="standard">Standard</option>
+        <option value="premium">Premium</option>
+      </select>
+    </div>
   );
-}
-
-/* ─── Developer License Factory Section ─── */
-function DeveloperLicenseFactorySection() {
-  return <DeveloperLicenseFactory />;
 }

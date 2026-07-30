@@ -1,12 +1,18 @@
 /**
  * Self-Service Admin Recovery
  * BIP39-style 12-word recovery key for store owner credential recovery.
+ *
+ * The admin passcode is stored as an argon2id hash (verify-only — there is
+ * no way to recover the original passcode from storage), unlike the
+ * recovery phrase above which was already hash-only via SHA-256.
  */
+
+import { argon2id, argon2Verify } from "hash-wasm";
 
 const RECOVERY_HASH_KEY = "omnimedia_recovery_hash";
 const RECOVERY_PLAINTEXT_KEY = "omnimedia_recovery_plaintext";
 const ADMIN_EMAIL_KEY = "omnimedia_admin_email";
-const ADMIN_PASSCODE_KEY = "omnimedia_admin_passcode";
+const ADMIN_PASSCODE_HASH_KEY = "omnimedia_admin_passcode_hash";
 
 // BIP39-style 12-word list (simplified subset)
 const WORD_LIST = [
@@ -294,19 +300,44 @@ export async function verifyRecoveryKey(input: string): Promise<boolean> {
   return hash === storedHash;
 }
 
-export function setAdminCredentials(email: string, passcode: string): void {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(ADMIN_EMAIL_KEY, email);
-    localStorage.setItem(ADMIN_PASSCODE_KEY, passcode);
-  }
+async function hashPasscode(passcode: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  return argon2id({
+    password: passcode,
+    salt,
+    iterations: 3,
+    parallelism: 1,
+    memorySize: 19456, // ~19 MiB, OWASP-recommended minimum for argon2id
+    hashLength: 32,
+    outputType: "encoded",
+  });
 }
 
-export function getAdminCredentials(): { email: string; passcode: string } | null {
-  if (typeof window === "undefined") return null;
-  const email = localStorage.getItem(ADMIN_EMAIL_KEY);
-  const passcode = localStorage.getItem(ADMIN_PASSCODE_KEY);
-  if (email && passcode) return { email, passcode };
-  return null;
+export async function setAdminCredentials(email: string, passcode: string): Promise<void> {
+  if (typeof window === "undefined") return;
+  const hash = await hashPasscode(passcode);
+  localStorage.setItem(ADMIN_EMAIL_KEY, email);
+  localStorage.setItem(ADMIN_PASSCODE_HASH_KEY, hash);
+}
+
+export function hasAdminCredentials(): boolean {
+  if (typeof window === "undefined") return false;
+  return !!localStorage.getItem(ADMIN_PASSCODE_HASH_KEY);
+}
+
+/**
+ * Verify-only: there is no way to recover the stored passcode, only to
+ * check whether a candidate passcode matches the stored hash.
+ */
+export async function verifyAdminPasscode(passcode: string): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  const hash = localStorage.getItem(ADMIN_PASSCODE_HASH_KEY);
+  if (!hash) return false;
+  try {
+    return await argon2Verify({ password: passcode, hash });
+  } catch {
+    return false;
+  }
 }
 
 export function hasRecoveryKey(): boolean {

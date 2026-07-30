@@ -262,3 +262,18 @@ export const comments = pgTable("comments", {
 
 export type CommentRow = typeof comments.$inferSelect;
 export type NewCommentRow = typeof comments.$inferInsert;
+
+/**
+ * Single global, admin-managed license tier setting (Step 26 trust-boundary
+ * decision). Like promoSettings, this is not per-visitor state, so no
+ * ownerId column — the app always reads/writes the one row keyed by the
+ * fixed "global" id. Self-hosted buyers can edit this row directly; that is
+ * an accepted trade-off, not a bug — see src/data/licensing.ts.
+ */
+export const licenseSettings = pgTable("license_settings", {
+  id: text("id").primaryKey(),
+  tier: text("tier").notNull().default("standard"), // "standard" | "premium"
+});
+
+export type LicenseSettingsRow = typeof licenseSettings.$inferSelect;
+export type NewLicenseSettingsRow = typeof licenseSettings.$inferInsert;

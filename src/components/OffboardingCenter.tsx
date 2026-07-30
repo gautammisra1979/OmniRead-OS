@@ -2,7 +2,6 @@
  * OffboardingCenter — Admin section for data export and right-to-be-forgotten purge.
  * Collects all client-side data (catalog, activity, analytics) into a downloadable JSON backup.
  * Full purge clears all localStorage and sessionStorage matching OmniMedia keys.
- * Anti-piracy filters applied via SecurityShield.
  */
 
 import { useState, useCallback } from "react";
@@ -11,8 +10,7 @@ import { getCatalogItems } from "~/data/catalog";
 import { getProgressEntries, getReviews } from "~/data/progress";
 import { getDownloads } from "~/data/downloads";
 import { getChatHistory } from "~/data/chatHistory";
-import { getLicenses } from "~/data/licensing";
-import { getUnlockedFeatures } from "~/data/licensing";
+import { getLicenseTier } from "~/data/licensing";
 
 /* ─── Data Export Engine ─── */
 
@@ -24,8 +22,7 @@ interface ExportPayload {
   reviews: ReturnType<typeof getReviews>;
   downloads: Awaited<ReturnType<typeof getDownloads>>;
   chatHistory: ReturnType<typeof getChatHistory>;
-  licenses: ReturnType<typeof getLicenses>;
-  unlockedFeatures: string[];
+  licenseTier: Awaited<ReturnType<typeof getLicenseTier>>;
   userPreferences: Record<string, string | null>;
 }
 
@@ -47,10 +44,6 @@ async function collectAllData(): Promise<ExportPayload> {
       "omnimedos_branding",
       "omnimedos_theme",
       "omnimedos_media_progress",
-      "omnimeda_license_keypair",
-      "omnimeda_licenses",
-      "omnimeda_activations",
-      "omnimeda_activated_features",
     ];
     for (const key of keys) {
       try {
@@ -69,8 +62,7 @@ async function collectAllData(): Promise<ExportPayload> {
     reviews: getReviews(),
     downloads: await getDownloads(),
     chatHistory: getChatHistory(),
-    licenses: getLicenses(),
-    unlockedFeatures: getUnlockedFeatures(),
+    licenseTier: await getLicenseTier(),
     userPreferences: prefs,
   };
 }

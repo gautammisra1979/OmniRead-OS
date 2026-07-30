@@ -8,7 +8,7 @@
 
 import { useState, useEffect, type ReactNode } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { isFeatureUnlocked, resetFeatureCache } from "~/data/licensing";
+import { isFeatureUnlocked } from "~/data/licensing";
 
 interface LicenseGateProps {
   feature: string;
@@ -31,15 +31,21 @@ export function LicenseGate({
 
   useEffect(() => {
     // Re-check on mount
-    setUnlocked(isFeatureUnlocked(feature));
-    setChecking(false);
+    let cancelled = false;
+    isFeatureUnlocked(feature).then((result) => {
+      if (cancelled) return;
+      setUnlocked(result);
+      setChecking(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [feature]);
 
-  // Listen for license changes (e.g. after activation)
+  // Listen for license changes (e.g. after an admin tier update)
   useEffect(() => {
     const handleLicenseChange = () => {
-      resetFeatureCache();
-      setUnlocked(isFeatureUnlocked(feature));
+      isFeatureUnlocked(feature).then(setUnlocked);
     };
     window.addEventListener("omnimedia_license_changed", handleLicenseChange);
     return () => {
@@ -144,10 +150,10 @@ export function LicenseGate({
         {/* CTA */}
         <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
           <a
-            href="/activate"
+            href="/admin"
             className="inline-flex items-center gap-2 rounded-lg px-6 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110"
             style={{ backgroundColor: "var(--color-primary, #6366f1)" }}
-            aria-label={t("license.activateCta").replace("{feature}", featureName)}
+            aria-label={t("license.manageCta").replace("{feature}", featureName)}
           >
             <svg
               className="h-4 w-4"
@@ -163,7 +169,7 @@ export function LicenseGate({
                 d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
-            {t("license.activateCta").replace("{feature}", featureName)}
+            {t("license.manageCta").replace("{feature}", featureName)}
           </a>
           <a
             href="/"

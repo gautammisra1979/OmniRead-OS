@@ -1,6 +1,6 @@
 import { useState, type FormEvent, useCallback, useEffect } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { verifyRecoveryKey, generateRecoveryKey, setAdminCredentials, hasRecoveryKey, getAdminCredentials } from "~/data/adminRecovery";
+import { verifyRecoveryKey, generateRecoveryKey, setAdminCredentials, hasRecoveryKey, hasAdminCredentials, verifyAdminPasscode } from "~/data/adminRecovery";
 
 const ADMIN_PASSWORD = "omnimeda-os-admin";
 
@@ -28,11 +28,12 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps) {
     }
   }, []);
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const creds = getAdminCredentials();
-    const validPassword = creds ? creds.passcode : ADMIN_PASSWORD;
-    if (password === validPassword) {
+    const valid = hasAdminCredentials()
+      ? await verifyAdminPasscode(password)
+      : password === ADMIN_PASSWORD;
+    if (valid) {
       onAuthenticated();
     } else {
       setError(t("admin.login.error"));
@@ -51,13 +52,13 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps) {
     }
   }, [recoveryInput]);
 
-  const handleSetNewCreds = useCallback(() => {
+  const handleSetNewCreds = useCallback(async () => {
     if (!newEmail.trim() || !newPasscode.trim()) return;
     if (newPasscode !== newPasscodeConfirm) {
       setRecoveryError("Passcodes do not match.");
       return;
     }
-    setAdminCredentials(newEmail.trim(), newPasscode);
+    await setAdminCredentials(newEmail.trim(), newPasscode);
     setShowNewCreds(false);
     setShowRecovery(false);
     // Show success message briefly
