@@ -53,8 +53,9 @@ import {
   setLicenseTier,
   type LicenseTier,
 } from "~/data/licensing";
-import { getRecoveryKey, logoutAdmin } from "~/data/adminRecovery";
+import { getRecoveryKey, logoutAdmin, hasAdminCredentials } from "~/data/adminRecovery";
 import { dispatchLicenseChange } from "~/components/LicenseGate";
+import { AdminForcedSetup } from "~/components/AdminForcedSetup";
 import { OffboardingCenter } from "~/components/OffboardingCenter";
 import { RefundClaimsManager } from "~/components/RefundClaimsManager";
 import { PlatformFactoryReset } from "~/components/PlatformFactoryReset";
@@ -77,12 +78,23 @@ export const Route = createFileRoute("/admin")({
 
 function AdminDashboard() {
   const [authenticated, setAuthenticated] = useState(false);
+  // Whether real admin credentials exist server-side (passcodeHash set) —
+  // null while the check is in flight. This is authoritative and checked
+  // before the sessionStorage flag below: a fresh deployment must not be
+  // able to skip credential setup just because that flag was set (e.g. a
+  // leftover value, or the fallback passcode having been used previously).
+  const [credentialsExist, setCredentialsExist] = useState<boolean | null>(null);
   const { t } = useLanguage();
 
   useEffect(() => {
+    hasAdminCredentials().then(setCredentialsExist);
+  }, []);
+
+  useEffect(() => {
+    if (!credentialsExist) return;
     const auth = sessionStorage.getItem("omnimeda_admin_auth");
     if (auth === "true") setAuthenticated(true);
-  }, []);
+  }, [credentialsExist]);
 
   const handleAuth = () => {
     // sessionStorage is a UI-only convenience so this component can
@@ -101,6 +113,14 @@ function AdminDashboard() {
     // client-side "logout", and every admin action would still succeed.
     logoutAdmin();
   };
+
+  if (credentialsExist === null) {
+    return null;
+  }
+
+  if (!credentialsExist) {
+    return <AdminForcedSetup onComplete={() => setCredentialsExist(true)} />;
+  }
 
   if (!authenticated) {
     return <AdminLogin onAuthenticated={handleAuth} />;

@@ -1,6 +1,7 @@
 import { useState, type FormEvent, useCallback, useEffect } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { verifyRecoveryKey, generateRecoveryKey, setAdminCredentials, hasRecoveryKey, loginAdmin } from "~/data/adminRecovery";
+import { verifyRecoveryKey, generateRecoveryKey, hasRecoveryKey, loginAdmin } from "~/data/adminRecovery";
+import { AdminCredentialsForm } from "~/components/AdminCredentialsForm";
 
 interface AdminLoginProps {
   onAuthenticated: () => void;
@@ -14,9 +15,6 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps) {
   const [recoveryError, setRecoveryError] = useState("");
   const [recoverySuccess, setRecoverySuccess] = useState(false);
   const [showNewCreds, setShowNewCreds] = useState(false);
-  const [newEmail, setNewEmail] = useState("");
-  const [newPasscode, setNewPasscode] = useState("");
-  const [newPasscodeConfirm, setNewPasscodeConfirm] = useState("");
   const [masterKey, setMasterKey] = useState("");
   const { t } = useLanguage();
 
@@ -52,20 +50,14 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps) {
     }
   }, [recoveryInput]);
 
-  const handleSetNewCreds = useCallback(async () => {
-    if (!newEmail.trim() || !newPasscode.trim()) return;
-    if (newPasscode !== newPasscodeConfirm) {
-      setRecoveryError("Passcodes do not match.");
-      return;
-    }
-    await setAdminCredentials(newEmail.trim(), newPasscode, recoveryInput.trim());
+  const handleNewCredsSuccess = useCallback((passcode: string) => {
     setShowNewCreds(false);
     setShowRecovery(false);
     // Show success message briefly
-    setPassword(newPasscode);
+    setPassword(passcode);
     setRecoverySuccess(false);
     setRecoveryInput("");
-  }, [newEmail, newPasscode, newPasscodeConfirm, recoveryInput]);
+  }, []);
 
   return (
     <div className="flex min-h-[70vh] items-center justify-center px-4">
@@ -218,40 +210,11 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps) {
                   <p className="text-xs text-center text-emerald-400">
                     {t("admin.recovery.verified") ?? "Recovery key verified! Set new credentials."}
                   </p>
-                  <div>
-                    <label htmlFor="new-email" className="block text-xs mb-1" style={{ color: "var(--color-text-muted)" }}>
-                      {t("admin.recovery.newEmail") ?? "New Admin Email"}
-                    </label>
-                    <input id="new-email" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)}
-                      className="w-full rounded-lg border px-4 py-3 text-sm" style={{ backgroundColor: "var(--color-surface)", color: "var(--color-text)", borderColor: "var(--color-border)" }} />
-                  </div>
-                  <div>
-                    <label htmlFor="new-passcode" className="block text-xs mb-1" style={{ color: "var(--color-text-muted)" }}>
-                      {t("admin.recovery.newPasscode") ?? "New Passcode"}
-                    </label>
-                    <input id="new-passcode" type="password" value={newPasscode} onChange={(e) => setNewPasscode(e.target.value)}
-                      className="w-full rounded-lg border px-4 py-3 text-sm" style={{ backgroundColor: "var(--color-surface)", color: "var(--color-text)", borderColor: "var(--color-border)" }} />
-                  </div>
-                  <div>
-                    <label htmlFor="new-passcode-confirm" className="block text-xs mb-1" style={{ color: "var(--color-text-muted)" }}>
-                      {t("admin.recovery.confirmPasscode") ?? "Confirm Passcode"}
-                    </label>
-                    <input id="new-passcode-confirm" type="password" value={newPasscodeConfirm} onChange={(e) => setNewPasscodeConfirm(e.target.value)}
-                      className="w-full rounded-lg border px-4 py-3 text-sm" style={{ backgroundColor: "var(--color-surface)", color: "var(--color-text)", borderColor: "var(--color-border)" }} />
-                  </div>
-                  {recoveryError && <p className="text-sm text-red-400" role="alert">{recoveryError}</p>}
-                  <div className="flex gap-3">
-                    <button type="button" onClick={() => setShowRecovery(false)}
-                      className="flex-1 rounded-lg border px-4 py-3 text-sm font-medium transition-colors"
-                      style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}>
-                      {t("common.cancel") ?? "Cancel"}
-                    </button>
-                    <button type="button" onClick={handleSetNewCreds}
-                      className="flex-1 rounded-lg px-4 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110"
-                      style={{ backgroundColor: "var(--color-primary)" }}>
-                      {t("admin.recovery.save") ?? "Save New Credentials"}
-                    </button>
-                  </div>
+                  <AdminCredentialsForm
+                    recoveryPhrase={recoveryInput.trim()}
+                    onSuccess={handleNewCredsSuccess}
+                    onCancel={() => setShowRecovery(false)}
+                  />
                 </>
               )}
 
