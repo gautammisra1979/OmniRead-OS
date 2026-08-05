@@ -53,9 +53,9 @@ import {
   setLicenseTier,
   type LicenseTier,
 } from "~/data/licensing";
-import { getRecoveryKey, logoutAdmin, hasAdminCredentials } from "~/data/adminRecovery";
+import { getRecoveryKey, logoutAdmin } from "~/data/adminRecovery";
 import { dispatchLicenseChange } from "~/components/LicenseGate";
-import { AdminForcedSetup } from "~/components/AdminForcedSetup";
+import { authClient } from "~/lib/auth-client";
 import { OffboardingCenter } from "~/components/OffboardingCenter";
 import { RefundClaimsManager } from "~/components/RefundClaimsManager";
 import { PlatformFactoryReset } from "~/components/PlatformFactoryReset";
@@ -78,29 +78,25 @@ export const Route = createFileRoute("/admin")({
 
 function AdminDashboard() {
   const [authenticated, setAuthenticated] = useState(false);
-  // Whether real admin credentials exist server-side (passcodeHash set) —
-  // null while the check is in flight. This is authoritative and checked
-  // before the sessionStorage flag below: a fresh deployment must not be
-  // able to skip credential setup just because that flag was set (e.g. a
-  // leftover value, or the fallback passcode having been used previously).
-  const [credentialsExist, setCredentialsExist] = useState<boolean | null>(null);
+  // Whether the current request carries a real Better Auth session for a
+  // user with role "admin" — pending while the check is in flight. This is
+  // authoritative and checked before the sessionStorage flag below: a
+  // client-side flag alone must never be enough to reach the dashboard.
+  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const hasAdminSession = !!session?.user && (session.user as { role?: string | null }).role === "admin";
   const { t } = useLanguage();
 
   useEffect(() => {
-    hasAdminCredentials().then(setCredentialsExist);
-  }, []);
-
-  useEffect(() => {
-    if (!credentialsExist) return;
+    if (!hasAdminSession) return;
     const auth = sessionStorage.getItem("omnimeda_admin_auth");
     if (auth === "true") setAuthenticated(true);
-  }, [credentialsExist]);
+  }, [hasAdminSession]);
 
   const handleAuth = () => {
     // sessionStorage is a UI-only convenience so this component can
     // instantly show the dashboard — it is NOT the security boundary.
-    // The signed session cookie set by loginAdmin() is what every
-    // admin-mutating server function actually checks via requireAdmin().
+    // The Better Auth session cookie is what every admin-mutating server
+    // function actually checks via requireAdmin().
     sessionStorage.setItem("omnimeda_admin_auth", "true");
     setAuthenticated(true);
   };
@@ -108,18 +104,20 @@ function AdminDashboard() {
   const handleLogout = () => {
     sessionStorage.removeItem("omnimeda_admin_auth");
     setAuthenticated(false);
-    // Clear the real server-side session cookie too — without this, the
-    // signed cookie stays valid (up to its 12h max age) even after the
-    // client-side "logout", and every admin action would still succeed.
+    // authClient.signOut() clears the real Better Auth session cookie —
+    // the actual security boundary requireAdmin() checks. logoutAdmin()
+    // also clears the legacy HMAC-cookie; nothing reads that cookie
+    // anymore, but clearing it too is harmless.
+    authClient.signOut();
     logoutAdmin();
   };
 
-  if (credentialsExist === null) {
+  if (sessionPending) {
     return null;
   }
 
-  if (!credentialsExist) {
-    return <AdminForcedSetup onComplete={() => setCredentialsExist(true)} />;
+  if (!hasAdminSession) {
+    return <AdminLogin onAuthenticated={handleAuth} />;
   }
 
   if (!authenticated) {

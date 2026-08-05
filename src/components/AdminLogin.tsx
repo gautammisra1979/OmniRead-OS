@@ -1,63 +1,34 @@
-import { useState, type FormEvent, useCallback, useEffect } from "react";
+import { useState, type FormEvent } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { verifyRecoveryKey, generateRecoveryKey, hasRecoveryKey, loginAdmin } from "~/data/adminRecovery";
-import { AdminCredentialsForm } from "~/components/AdminCredentialsForm";
+import { authClient } from "~/lib/auth-client";
 
 interface AdminLoginProps {
   onAuthenticated: () => void;
 }
 
 export function AdminLogin({ onAuthenticated }: AdminLoginProps) {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [showRecovery, setShowRecovery] = useState(false);
-  const [recoveryInput, setRecoveryInput] = useState("");
-  const [recoveryError, setRecoveryError] = useState("");
-  const [recoverySuccess, setRecoverySuccess] = useState(false);
-  const [showNewCreds, setShowNewCreds] = useState(false);
-  const [masterKey, setMasterKey] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const { t } = useLanguage();
-
-  useEffect(() => {
-    if (!hasRecoveryKey()) {
-      generateRecoveryKey().then((key) => setMasterKey(key));
-    }
-  }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    // loginAdmin verifies the passcode server-side and, on success, sets the
-    // signed session cookie that every admin-mutating server function now
-    // checks — that cookie is the real security boundary, not this call's
-    // return value.
-    const valid = await loginAdmin(password);
-    if (valid) {
+    setSubmitting(true);
+    setError("");
+    // Better Auth's own session cookie (not this call's return value) is
+    // what every admin-mutating server function now checks via
+    // requireAdmin() — that cookie is the real security boundary.
+    const { error: signInError } = await authClient.signIn.email({ email, password });
+    setSubmitting(false);
+    if (!signInError) {
       onAuthenticated();
     } else {
       setError(t("admin.login.error"));
       setPassword("");
     }
   };
-
-  const handleRecoveryVerify = useCallback(async () => {
-    const isValid = await verifyRecoveryKey(recoveryInput.trim());
-    if (isValid) {
-      setRecoverySuccess(true);
-      setRecoveryError("");
-      setShowNewCreds(true);
-    } else {
-      setRecoveryError("Invalid recovery key. Please check your 12-word phrase.");
-    }
-  }, [recoveryInput]);
-
-  const handleNewCredsSuccess = useCallback((passcode: string) => {
-    setShowNewCreds(false);
-    setShowRecovery(false);
-    // Show success message briefly
-    setPassword(passcode);
-    setRecoverySuccess(false);
-    setRecoveryInput("");
-  }, []);
 
   return (
     <div className="flex min-h-[70vh] items-center justify-center px-4">
@@ -97,134 +68,65 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps) {
             {t("admin.login.subtitle")}
           </p>
 
-          {!showRecovery ? (
-            <>
-              <form onSubmit={handleSubmit} className="mt-8 space-y-4" aria-label="Admin authentication form">
-                <div>
-                  <label htmlFor="admin-password" className="sr-only">
-                    {t("admin.login.title")}
-                  </label>
-                  <input
-                    id="admin-password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => { setPassword(e.target.value); setError(""); }}
-                    placeholder={t("admin.login.title")}
-                    className="w-full rounded-lg border px-4 py-3 text-sm transition-colors focus:outline-none focus:ring-1 placeholder-gray-500"
-                    style={{
-                      backgroundColor: "var(--color-surface)",
-                      color: "var(--color-text)",
-                      borderColor: error ? "#ef4444" : "var(--color-border)",
-                    }}
-                    autoFocus
-                    aria-invalid={!!error}
-                    aria-describedby={error ? "password-error" : undefined}
-                  />
-                </div>
-
-                {error && (
-                  <p id="password-error" className="text-sm text-red-400" role="alert">
-                    {error}
-                  </p>
-                )}
-
-                <button
-                  type="submit"
-                  className="w-full rounded-lg px-4 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-                  style={{ backgroundColor: "var(--color-primary)" }}
-                >
-                  {t("admin.login.button")}
-                </button>
-              </form>
-
-              <div className="mt-6 space-y-3">
-                <button
-                  type="button"
-                  onClick={() => setShowRecovery(true)}
-                  className="w-full text-center text-xs underline underline-offset-2 hover:opacity-80"
-                  style={{ color: "var(--color-text-muted)" }}
-                >
-                  {t("admin.recovery.reset") ?? "Reset / Change Admin Credentials"}
-                </button>
-
-                {masterKey && (
-                  <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-surface)" }}>
-                    <p className="text-xs font-bold mb-1" style={{ color: "var(--color-text)" }}>
-                      {t("admin.recovery.key") ?? "Your Master Recovery Key:"}
-                    </p>
-                    <p className="text-xs font-mono leading-relaxed break-all" style={{ color: "var(--color-primary)" }}>
-                      {masterKey}
-                    </p>
-                    <p className="text-[10px] mt-1" style={{ color: "var(--color-text-muted)" }}>
-                      {t("admin.recovery.save") ?? "Save this in a safe place. It cannot be recovered."}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <div className="mt-8 space-y-4">
-              <h2 className="text-base font-semibold text-center" style={{ color: "var(--color-text)" }}>
-                {t("admin.recovery.title") ?? "Account Recovery"}
-              </h2>
-
-              {!showNewCreds ? (
-                <>
-                  <p className="text-xs text-center" style={{ color: "var(--color-text-muted)" }}>
-                    {t("admin.recovery.enterKey") ?? "Enter your 12-word Master Recovery Key to reset credentials."}
-                  </p>
-                  <div>
-                    <label htmlFor="recovery-key" className="sr-only">
-                      {t("admin.recovery.key") ?? "Master Recovery Key"}
-                    </label>
-                    <textarea
-                      id="recovery-key"
-                      value={recoveryInput}
-                      onChange={(e) => { setRecoveryInput(e.target.value); setRecoveryError(""); }}
-                      className="w-full rounded-lg border px-4 py-3 text-sm transition-colors focus:outline-none focus:ring-1"
-                      style={{
-                        backgroundColor: "var(--color-surface)",
-                        color: "var(--color-text)",
-                        borderColor: recoveryError ? "#ef4444" : "var(--color-border)",
-                      }}
-                      rows={3}
-                      placeholder="Enter your 12-word recovery phrase..."
-                    />
-                  </div>
-
-                  {recoveryError && (
-                    <p className="text-sm text-red-400" role="alert">{recoveryError}</p>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={handleRecoveryVerify}
-                    className="w-full rounded-lg px-4 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110"
-                    style={{ backgroundColor: "var(--color-primary)" }}
-                  >
-                    {t("admin.recovery.verify") ?? "Verify & Reset"}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <p className="text-xs text-center text-emerald-400">
-                    {t("admin.recovery.verified") ?? "Recovery key verified! Set new credentials."}
-                  </p>
-                  <AdminCredentialsForm
-                    recoveryPhrase={recoveryInput.trim()}
-                    onSuccess={handleNewCredsSuccess}
-                    onCancel={() => setShowRecovery(false)}
-                  />
-                </>
-              )}
-
-              <button type="button" onClick={() => { setShowRecovery(false); setShowNewCreds(false); setRecoveryInput(""); setRecoveryError(""); }}
-                className="w-full text-center text-xs underline underline-offset-2 hover:opacity-80"
-                style={{ color: "var(--color-text-muted)" }}>
-                {t("common.cancel") ?? "Back to Login"}
-              </button>
+          <form onSubmit={handleSubmit} className="mt-8 space-y-4" aria-label="Admin authentication form">
+            <div>
+              <label htmlFor="admin-email" className="sr-only">
+                {t("admin.login.email") ?? "Email"}
+              </label>
+              <input
+                id="admin-email"
+                type="email"
+                value={email}
+                onChange={(e) => { setEmail(e.target.value); setError(""); }}
+                placeholder={t("admin.login.email") ?? "Email"}
+                className="w-full rounded-lg border px-4 py-3 text-sm transition-colors focus:outline-none focus:ring-1 placeholder-gray-500"
+                style={{
+                  backgroundColor: "var(--color-surface)",
+                  color: "var(--color-text)",
+                  borderColor: error ? "#ef4444" : "var(--color-border)",
+                }}
+                autoFocus
+                aria-invalid={!!error}
+                aria-describedby={error ? "password-error" : undefined}
+              />
             </div>
-          )}
+
+            <div>
+              <label htmlFor="admin-password" className="sr-only">
+                {t("admin.login.password") ?? "Password"}
+              </label>
+              <input
+                id="admin-password"
+                type="password"
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); setError(""); }}
+                placeholder={t("admin.login.password") ?? "Password"}
+                className="w-full rounded-lg border px-4 py-3 text-sm transition-colors focus:outline-none focus:ring-1 placeholder-gray-500"
+                style={{
+                  backgroundColor: "var(--color-surface)",
+                  color: "var(--color-text)",
+                  borderColor: error ? "#ef4444" : "var(--color-border)",
+                }}
+                aria-invalid={!!error}
+                aria-describedby={error ? "password-error" : undefined}
+              />
+            </div>
+
+            {error && (
+              <p id="password-error" className="text-sm text-red-400" role="alert">
+                {error}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={submitting}
+              className="w-full rounded-lg px-4 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60"
+              style={{ backgroundColor: "var(--color-primary)" }}
+            >
+              {t("admin.login.button")}
+            </button>
+          </form>
         </div>
       </div>
     </div>

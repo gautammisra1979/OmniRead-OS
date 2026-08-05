@@ -1,20 +1,25 @@
 /**
- * Minimal server-side admin-session check — a stopgap ahead of the eventual
- * Better Auth integration.
+ * Server-side admin-session check, backed by Better Auth.
  *
- * Today, admin auth is entirely client-side (a passcode hash in Postgres,
- * checked from the browser, with a sessionStorage flag flipped on success).
- * That means any request that reaches an admin-mutating server function
- * directly — bypassing the React admin UI — succeeds no matter what. This
- * file is the actual security boundary: a single HMAC-signed cookie, no
- * session store, no roles.
+ * `requireAdmin()` reads the incoming request's Better Auth session and
+ * confirms the signed-in user has `role === "admin"` (see the
+ * `databaseHooks.user.create.before` hook in src/lib/auth.ts, which grants
+ * that role to the user whose email matches `ADMIN_EMAIL`). This is the
+ * real access-control gate — nothing client-side (sessionStorage, the React
+ * admin UI) should be trusted.
  *
- * When Better Auth replaces this, only the internals below should change —
- * call sites (`await requireAdmin()` as the first line of a handler) should
- * not need to change.
+ * The previous implementation (a standalone HMAC-signed cookie, no session
+ * store, no roles) is preserved below: the verification half is commented
+ * out as a rollback reference (see the LEGACY block), but `signSession()`
+ * and its helpers stay live and exported via `issueAdminSession()` /
+ * `clearAdminSession()`, which are still used by
+ * src/data/adminRecovery.ts's passcode login/logout path. That path remains
+ * in place (unused by the admin UI now) per the Better Auth migration plan.
+ * `ADMIN_SESSION_SECRET` is likewise left in place for the same reason.
  */
 
-import { getCookie, setCookie, deleteCookie } from "@tanstack/react-start/server";
+import { getRequestHeaders, setCookie, deleteCookie } from "@tanstack/react-start/server";
+import { auth } from "~/lib/auth";
 
 const COOKIE_NAME = "omnimedia_admin_session";
 const MAX_AGE_SECONDS = 12 * 60 * 60; // 12 hours
@@ -27,9 +32,7 @@ interface SessionPayload {
 /**
  * Requires a random 32+ byte secret in `process.env.ADMIN_SESSION_SECRET`.
  * Not set by default — add it to `.env.local` for local dev and to the
- * Vercel project's environment variables for production. There is
- * deliberately no fallback: a misconfigured deploy must fail loudly (every
- * admin action rejected) rather than silently accept unsigned sessions.
+ * Vercel project's environment variables for production.
  */
 function getSecret(): string {
   const secret = process.env.ADMIN_SESSION_SECRET;
@@ -59,15 +62,6 @@ function toBase64Url(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function fromBase64Url(str: string): Uint8Array {
-  const normalized = str.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
 async function signSession(payload: SessionPayload): Promise<string> {
   const key = await hmacKey(getSecret());
   const payloadB64 = toBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
@@ -75,33 +69,81 @@ async function signSession(payload: SessionPayload): Promise<string> {
   return `${payloadB64}.${toBase64Url(new Uint8Array(signature))}`;
 }
 
-async function verifySession(token: string): Promise<SessionPayload | null> {
-  const parts = token.split(".");
-  if (parts.length !== 2) return null;
-  const [payloadB64, sigB64] = parts;
+/**
+ * Throws if the current request does not carry a valid Better Auth session
+ * for a user with `role === "admin"`. Call as the first line of every
+ * admin-mutating server function handler.
+ */
+export async function requireAdmin(): Promise<void> {
+  const session = await auth.api.getSession({ headers: getRequestHeaders() });
+  if (!session) throw new Error("Admin authentication required.");
 
-  const key = await hmacKey(getSecret());
-  const valid = await crypto.subtle.verify(
-    "HMAC",
-    key,
-    fromBase64Url(sigB64),
-    new TextEncoder().encode(payloadB64),
-  );
-  if (!valid) return null;
-
-  try {
-    const payload = JSON.parse(new TextDecoder().decode(fromBase64Url(payloadB64))) as SessionPayload;
-    if (payload.admin !== true || typeof payload.iat !== "number") return null;
-    return payload;
-  } catch {
-    return null;
-  }
+  const role = (session.user as { role?: string | null }).role;
+  if (role !== "admin") throw new Error("Admin authentication required.");
 }
 
+/* ────────────────────────────────────────────────────────────────────────
+ * LEGACY — HMAC-signed-cookie verification (pre-Better-Auth stopgap).
+ *
+ * This is the half of the old implementation that requireAdmin() itself
+ * used to run: decode the cookie, verify its signature, check expiry. It's
+ * superseded by the Better Auth session + role check above and is no
+ * longer called from anywhere. Left commented out, not deleted, so this
+ * swap can be rolled back by restoring this block and pointing
+ * requireAdmin() at legacyRequireAdmin() again. (signSession() and its
+ * dependencies above stay live — issueAdminSession() below still needs
+ * them.)
+ *
+ * function fromBase64Url(str: string): Uint8Array {
+ *   const normalized = str.replace(/-/g, "+").replace(/_/g, "/");
+ *   const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+ *   const binary = atob(padded);
+ *   const bytes = new Uint8Array(binary.length);
+ *   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+ *   return bytes;
+ * }
+ *
+ * async function verifySession(token: string): Promise<SessionPayload | null> {
+ *   const parts = token.split(".");
+ *   if (parts.length !== 2) return null;
+ *   const [payloadB64, sigB64] = parts;
+ *
+ *   const key = await hmacKey(getSecret());
+ *   const valid = await crypto.subtle.verify(
+ *     "HMAC",
+ *     key,
+ *     fromBase64Url(sigB64),
+ *     new TextEncoder().encode(payloadB64),
+ *   );
+ *   if (!valid) return null;
+ *
+ *   try {
+ *     const payload = JSON.parse(new TextDecoder().decode(fromBase64Url(payloadB64))) as SessionPayload;
+ *     if (payload.admin !== true || typeof payload.iat !== "number") return null;
+ *     return payload;
+ *   } catch {
+ *     return null;
+ *   }
+ * }
+ *
+ * async function legacyRequireAdmin(): Promise<void> {
+ *   const token = getCookie(COOKIE_NAME);
+ *   if (!token) throw new Error("Admin authentication required.");
+ *
+ *   const payload = await verifySession(token);
+ *   if (!payload) throw new Error("Admin authentication required.");
+ *
+ *   if (Date.now() - payload.iat > MAX_AGE_SECONDS * 1000) {
+ *     throw new Error("Admin session expired.");
+ *   }
+ * }
+ * ──────────────────────────────────────────────────────────────────────── */
+
 /**
- * Issue the signed admin session cookie. Call this on successful passcode
- * verification (see the login handler in src/data/adminRecovery.ts) —
- * never anywhere else.
+ * Issue the signed admin session cookie. Still called by the legacy
+ * passcode login handler in src/data/adminRecovery.ts (dbLoginAdmin) —
+ * that path is no longer reachable from the admin UI but is left
+ * functional per the migration plan.
  */
 export async function issueAdminSession(): Promise<void> {
   const token = await signSession({ admin: true, iat: Date.now() });
@@ -114,25 +156,7 @@ export async function issueAdminSession(): Promise<void> {
   });
 }
 
-/** Clears the admin session cookie (logout). */
+/** Clears the legacy admin session cookie (logout). */
 export function clearAdminSession(): void {
   deleteCookie(COOKIE_NAME, { path: "/" });
-}
-
-/**
- * Throws if the current request does not carry a valid, unexpired admin
- * session cookie. Call as the first line of every admin-mutating server
- * function handler — this is the real access-control gate; nothing
- * client-side (sessionStorage, the React admin UI) should be trusted.
- */
-export async function requireAdmin(): Promise<void> {
-  const token = getCookie(COOKIE_NAME);
-  if (!token) throw new Error("Admin authentication required.");
-
-  const payload = await verifySession(token);
-  if (!payload) throw new Error("Admin authentication required.");
-
-  if (Date.now() - payload.iat > MAX_AGE_SECONDS * 1000) {
-    throw new Error("Admin session expired.");
-  }
 }
