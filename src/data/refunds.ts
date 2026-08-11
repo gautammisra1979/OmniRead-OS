@@ -3,14 +3,13 @@ import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { refundClaims, type RefundClaimRow } from "~/db/schema";
-import { getOrCreateOwnerId } from "~/lib/ownerId";
+import { getUserId } from "~/lib/getUserId";
 import { requireAdmin } from "~/lib/requireAdmin";
 
 /**
  * Phase 1 (Step 26): DB-backed refund claims, replacing the localStorage
- * version. Rows are keyed by the anonymous ownerId cookie
- * (src/lib/ownerId.ts) rather than a real user_id — swap once Better Auth
- * lands.
+ * version. Rows are keyed by the Better Auth user_id (src/lib/getUserId.ts)
+ * — every visitor, guest or logged-in, has one via the `anonymous` plugin.
  *
  * Each public function is a plain async wrapper around an internal
  * createServerFn, preserving the original call signature.
@@ -56,11 +55,11 @@ function rowToClaim(row: RefundClaimRow): RefundClaim {
 
 const dbGetRefundClaims = createServerFn({ method: "GET" }).handler(
   async (): Promise<RefundClaim[]> => {
-    const ownerId = getOrCreateOwnerId();
+    const userId = await getUserId();
     const rows = await db()
       .select()
       .from(refundClaims)
-      .where(eq(refundClaims.ownerId, ownerId));
+      .where(eq(refundClaims.userId, userId));
     return rows.map(rowToClaim);
   },
 );
@@ -77,11 +76,11 @@ const dbSubmitRefundClaim = createServerFn({ method: "POST" })
     }) => input,
   )
   .handler(async ({ data: input }): Promise<RefundClaim> => {
-    const ownerId = getOrCreateOwnerId();
+    const userId = await getUserId();
     const [row] = await db()
       .insert(refundClaims)
       .values({
-        ownerId,
+        userId,
         downloadId: input.downloadId,
         productId: input.productId,
         productTitle: input.productTitle,
@@ -99,7 +98,7 @@ const dbResolveRefundClaim = createServerFn({ method: "POST" })
   )
   .handler(async ({ data: input }): Promise<RefundClaim | null> => {
     await requireAdmin();
-    const ownerId = getOrCreateOwnerId();
+    const userId = await getUserId();
     const [row] = await db()
       .update(refundClaims)
       .set({
@@ -107,7 +106,7 @@ const dbResolveRefundClaim = createServerFn({ method: "POST" })
         resolvedAt: new Date(),
         ...(input.adminNotes ? { adminNotes: input.adminNotes } : {}),
       })
-      .where(and(eq(refundClaims.id, input.id), eq(refundClaims.ownerId, ownerId)))
+      .where(and(eq(refundClaims.id, input.id), eq(refundClaims.userId, userId)))
       .returning();
     return row ? rowToClaim(row) : null;
   });

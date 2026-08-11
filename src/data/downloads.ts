@@ -3,15 +3,15 @@ import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { downloads, type DownloadRow, type NewDownloadRow } from "~/db/schema";
-import { getOrCreateOwnerId } from "~/lib/ownerId";
+import { getUserId } from "~/lib/getUserId";
 import { requireAdmin } from "~/lib/requireAdmin";
 
 /**
  * Phase 3 (Step 26): DB-backed download ledger, replacing the localStorage
- * version. Rows are keyed by the anonymous ownerId cookie
- * (src/lib/ownerId.ts) rather than a real user_id — swap once Better Auth
- * lands. Flight Recorder was never wired into this module, so there's
- * nothing to remove there.
+ * version. Rows are keyed by the Better Auth user_id (src/lib/getUserId.ts)
+ * — every visitor, guest or logged-in, has one via the `anonymous` plugin.
+ * Flight Recorder was never wired into this module, so there's nothing to
+ * remove there.
  *
  * Each public function is a plain async wrapper around an internal
  * createServerFn, preserving the original call signature.
@@ -54,13 +54,13 @@ function rowToRecord(row: DownloadRow): DownloadRecord {
 /** Demo records seeded for a first-time owner — same 3 records that used to
  *  be hardcoded in seedDemoDownloads(), now inserted per-owner on first
  *  read instead of once per browser localStorage blob. */
-function demoRecords(ownerId: string): NewDownloadRow[] {
+function demoRecords(userId: string): NewDownloadRow[] {
   const now = Date.now();
   const daysAgo = (n: number) => new Date(now - n * 24 * 60 * 60 * 1000);
 
   return [
     {
-      ownerId,
+      userId,
       productId: "product-1",
       productTitle: "The Resilient Mind",
       productAuthor: "Dr. Amara Osei",
@@ -71,7 +71,7 @@ function demoRecords(ownerId: string): NewDownloadRow[] {
       downloadCount: 2,
     },
     {
-      ownerId,
+      userId,
       productId: "product-2",
       productTitle: "Mindful Moments",
       productAuthor: "Lena K. Hart",
@@ -82,7 +82,7 @@ function demoRecords(ownerId: string): NewDownloadRow[] {
       downloadCount: 1,
     },
     {
-      ownerId,
+      userId,
       productId: "product-3",
       productTitle: "Wellness Mastery",
       productAuthor: "Dr. Marcus Vega",
@@ -99,13 +99,13 @@ function demoRecords(ownerId: string): NewDownloadRow[] {
 
 const dbGetDownloads = createServerFn({ method: "GET" }).handler(
   async (): Promise<DownloadRecord[]> => {
-    const ownerId = getOrCreateOwnerId();
+    const userId = await getUserId();
     const database = db();
-    const rows = await database.select().from(downloads).where(eq(downloads.ownerId, ownerId));
+    const rows = await database.select().from(downloads).where(eq(downloads.userId, userId));
     if (rows.length > 0) return rows.map(rowToRecord);
 
     // First visit for this owner — seed the demo records.
-    const seeded = await database.insert(downloads).values(demoRecords(ownerId)).returning();
+    const seeded = await database.insert(downloads).values(demoRecords(userId)).returning();
     return seeded.map(rowToRecord);
   },
 );
@@ -123,11 +123,11 @@ const dbAddDownload = createServerFn({ method: "POST" })
     }) => record,
   )
   .handler(async ({ data: record }): Promise<DownloadRecord> => {
-    const ownerId = getOrCreateOwnerId();
+    const userId = await getUserId();
     const [row] = await db()
       .insert(downloads)
       .values({
-        ownerId,
+        userId,
         productId: record.productId,
         productTitle: record.productTitle,
         productAuthor: record.productAuthor,
@@ -145,12 +145,12 @@ const dbAddDownload = createServerFn({ method: "POST" })
 const dbIncrementDownloadCount = createServerFn({ method: "POST" })
   .validator((id: string) => id)
   .handler(async ({ data: id }): Promise<void> => {
-    const ownerId = getOrCreateOwnerId();
+    const userId = await getUserId();
     const database = db();
     const rows = await database
       .select()
       .from(downloads)
-      .where(and(eq(downloads.id, id), eq(downloads.ownerId, ownerId)));
+      .where(and(eq(downloads.id, id), eq(downloads.userId, userId)));
     const row = rows[0];
     if (!row) return;
     await database
@@ -163,11 +163,11 @@ const dbMarkDownloadsRefunded = createServerFn({ method: "POST" })
   .validator((sessionId: string) => sessionId)
   .handler(async ({ data: sessionId }): Promise<void> => {
     await requireAdmin();
-    const ownerId = getOrCreateOwnerId();
+    const userId = await getUserId();
     await db()
       .update(downloads)
       .set({ status: "refunded" })
-      .where(and(eq(downloads.ownerId, ownerId), eq(downloads.sessionId, sessionId)));
+      .where(and(eq(downloads.userId, userId), eq(downloads.sessionId, sessionId)));
   });
 
 /* ─── Public API ─── */

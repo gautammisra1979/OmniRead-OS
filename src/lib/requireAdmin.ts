@@ -2,11 +2,17 @@
  * Server-side admin-session check, backed by Better Auth.
  *
  * `requireAdmin()` reads the incoming request's Better Auth session and
- * confirms the signed-in user has `role === "admin"` (see the
- * `databaseHooks.user.create.before` hook in src/lib/auth.ts, which grants
- * that role to the user whose email matches `ADMIN_EMAIL`). This is the
- * real access-control gate — nothing client-side (sessionStorage, the React
- * admin UI) should be trusted.
+ * compares the signed-in user's email (case-insensitively) against
+ * `ADMIN_EMAIL` / `ADMIN_EMAIL_BACKUP`, read live from `process.env` on
+ * every call. Admin status is NOT persisted anywhere — no DB role, no flag
+ * on the user row — so editing `ADMIN_EMAIL` in Vercel's env vars changes
+ * who's admin on the very next request, for whichever account is signed in
+ * under that address. See src/lib/auth.ts for the matching guard on the
+ * signup side (databaseHooks.user.create.before, which reserves these
+ * emails) and src/routes/admin_.claim.tsx, the only way to create or reset
+ * the account attached to one of them. This is the real access-control
+ * gate — nothing client-side (sessionStorage, the React admin UI) should
+ * be trusted.
  *
  * The previous implementation (a standalone HMAC-signed cookie, no session
  * store, no roles) is preserved below: the verification half is commented
@@ -71,15 +77,20 @@ async function signSession(payload: SessionPayload): Promise<string> {
 
 /**
  * Throws if the current request does not carry a valid Better Auth session
- * for a user with `role === "admin"`. Call as the first line of every
- * admin-mutating server function handler.
+ * whose email matches `ADMIN_EMAIL` / `ADMIN_EMAIL_BACKUP`. Call as the
+ * first line of every admin-mutating server function handler.
  */
 export async function requireAdmin(): Promise<void> {
   const session = await auth.api.getSession({ headers: getRequestHeaders() });
   if (!session) throw new Error("Admin authentication required.");
+  if (!isAdminEmail(session.user.email)) throw new Error("Admin authentication required.");
+}
 
-  const role = (session.user as { role?: string | null }).role;
-  if (role !== "admin") throw new Error("Admin authentication required.");
+function isAdminEmail(email: string): boolean {
+  const normalized = email.toLowerCase();
+  const adminEmail = process.env.ADMIN_EMAIL?.toLowerCase();
+  const adminEmailBackup = process.env.ADMIN_EMAIL_BACKUP?.toLowerCase();
+  return (!!adminEmail && normalized === adminEmail) || (!!adminEmailBackup && normalized === adminEmailBackup);
 }
 
 /* ────────────────────────────────────────────────────────────────────────

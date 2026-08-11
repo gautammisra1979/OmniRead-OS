@@ -5,16 +5,16 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { wallet as walletTable, type WalletRow } from "~/db/schema";
-import { getOrCreateOwnerId } from "~/lib/ownerId";
+import { getUserId } from "~/lib/getUserId";
 import { requireAdmin } from "~/lib/requireAdmin";
 
 /**
  * Phase 3 (Step 26): DB-backed wallet, replacing the localStorage version.
  * costPer1K is folded into the same `wallet` row as a column (no more
- * separate COST_KEY). Rows are keyed by the anonymous ownerId cookie
- * (src/lib/ownerId.ts) rather than a real user_id — swap once Better Auth
- * lands. Flight Recorder calls that used to fire on every mutation here have
- * been removed; Postgres is the durability layer now.
+ * separate COST_KEY). Rows are keyed by the Better Auth user_id
+ * (src/lib/getUserId.ts) — every visitor, guest or logged-in, has one via
+ * the `anonymous` plugin. Flight Recorder calls that used to fire on every
+ * mutation here have been removed; Postgres is the durability layer now.
  *
  * Each public function below is a plain async wrapper around an internal
  * createServerFn, preserving the original call signature. The
@@ -52,15 +52,15 @@ function rowToWalletState(row: WalletRow): WalletState {
   };
 }
 
-async function loadWalletRow(ownerId: string): Promise<WalletRow | null> {
-  const rows = await db().select().from(walletTable).where(eq(walletTable.ownerId, ownerId));
+async function loadWalletRow(userId: string): Promise<WalletRow | null> {
+  const rows = await db().select().from(walletTable).where(eq(walletTable.userId, userId));
   return rows[0] ?? null;
 }
 
 /** Upsert the wallet row: creates it with defaults (overridden by `patch`) if
  *  missing, or applies `patch` on top of the existing row. */
 async function upsertWallet(
-  ownerId: string,
+  userId: string,
   patch: Partial<{
     credits: string;
     totalPurchased: string;
@@ -72,7 +72,7 @@ async function upsertWallet(
   const [row] = await db()
     .insert(walletTable)
     .values({
-      ownerId,
+      userId,
       credits: patch.credits ?? String(DEFAULT_WALLET.credits),
       totalPurchased: patch.totalPurchased ?? String(DEFAULT_WALLET.totalPurchased),
       totalConsumed: patch.totalConsumed ?? String(DEFAULT_WALLET.totalConsumed),
@@ -80,7 +80,7 @@ async function upsertWallet(
       costPer1K: patch.costPer1K ?? String(DEFAULT_COST_PER_1K),
     })
     .onConflictDoUpdate({
-      target: walletTable.ownerId,
+      target: walletTable.userId,
       set: patch,
     })
     .returning();
@@ -91,7 +91,7 @@ async function upsertWallet(
 
 const dbGetWallet = createServerFn({ method: "GET" }).handler(
   async (): Promise<WalletState> => {
-    const row = await loadWalletRow(getOrCreateOwnerId());
+    const row = await loadWalletRow(await getUserId());
     return row ? rowToWalletState(row) : { ...DEFAULT_WALLET };
   },
 );
@@ -99,7 +99,7 @@ const dbGetWallet = createServerFn({ method: "GET" }).handler(
 const dbSaveWallet = createServerFn({ method: "POST" })
   .validator((state: WalletState) => state)
   .handler(async ({ data: state }): Promise<void> => {
-    await upsertWallet(getOrCreateOwnerId(), {
+    await upsertWallet(await getUserId(), {
       credits: String(state.credits),
       totalPurchased: String(state.totalPurchased),
       totalConsumed: String(state.totalConsumed),
@@ -110,8 +110,8 @@ const dbSaveWallet = createServerFn({ method: "POST" })
 const dbDeductCredits = createServerFn({ method: "POST" })
   .validator((amount: number) => amount)
   .handler(async ({ data: amount }): Promise<{ ok: boolean; wallet: WalletState }> => {
-    const ownerId = getOrCreateOwnerId();
-    const row = await loadWalletRow(ownerId);
+    const userId = await getUserId();
+    const row = await loadWalletRow(userId);
     const current = row ? rowToWalletState(row) : { ...DEFAULT_WALLET };
     if (current.credits < amount) {
       return { ok: false, wallet: current };
@@ -121,7 +121,7 @@ const dbDeductCredits = createServerFn({ method: "POST" })
       credits: current.credits - amount,
       totalConsumed: current.totalConsumed + amount,
     };
-    await upsertWallet(ownerId, {
+    await upsertWallet(userId, {
       credits: String(next.credits),
       totalPurchased: String(next.totalPurchased),
       totalConsumed: String(next.totalConsumed),
@@ -133,15 +133,15 @@ const dbDeductCredits = createServerFn({ method: "POST" })
 const dbAddCredits = createServerFn({ method: "POST" })
   .validator((amount: number) => amount)
   .handler(async ({ data: amount }): Promise<WalletState> => {
-    const ownerId = getOrCreateOwnerId();
-    const row = await loadWalletRow(ownerId);
+    const userId = await getUserId();
+    const row = await loadWalletRow(userId);
     const current = row ? rowToWalletState(row) : { ...DEFAULT_WALLET };
     const next: WalletState = {
       ...current,
       credits: current.credits + amount,
       totalPurchased: current.totalPurchased + amount,
     };
-    await upsertWallet(ownerId, {
+    await upsertWallet(userId, {
       credits: String(next.credits),
       totalPurchased: String(next.totalPurchased),
       totalConsumed: String(next.totalConsumed),
@@ -152,7 +152,7 @@ const dbAddCredits = createServerFn({ method: "POST" })
 
 const dbGetCostPer1K = createServerFn({ method: "GET" }).handler(
   async (): Promise<number> => {
-    const row = await loadWalletRow(getOrCreateOwnerId());
+    const row = await loadWalletRow(await getUserId());
     return row ? Number(row.costPer1K) : DEFAULT_COST_PER_1K;
   },
 );
@@ -162,7 +162,7 @@ const dbSaveCostPer1K = createServerFn({ method: "POST" })
   .handler(async ({ data: cost }): Promise<void> => {
     await requireAdmin();
     const clamped = Math.min(0.05, Math.max(0, cost));
-    await upsertWallet(getOrCreateOwnerId(), { costPer1K: String(clamped) });
+    await upsertWallet(await getUserId(), { costPer1K: String(clamped) });
   });
 
 /* ─── Public API ─── */

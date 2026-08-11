@@ -8,17 +8,17 @@ import {
   type LoyaltyConfigRow,
   type LoyaltyLedgerRow,
 } from "~/db/schema";
-import { getOrCreateOwnerId } from "~/lib/ownerId";
+import { getUserId } from "~/lib/getUserId";
 import { requireAdmin } from "~/lib/requireAdmin";
 
 /**
  * Phase 3 (Step 26): DB-backed loyalty config + ledger, replacing the
  * localStorage version. `loyalty_config` holds both draft and published rows
  * per owner, differentiated by the `status` column. Rows are keyed by the
- * anonymous ownerId cookie (src/lib/ownerId.ts) rather than a real user_id —
- * swap once Better Auth lands. The one Flight Recorder call that used to
- * fire on every ledger mutation has been removed; Postgres is the
- * durability layer now.
+ * Better Auth user_id (src/lib/getUserId.ts) — every visitor, guest or
+ * logged-in, has one via the `anonymous` plugin. The one Flight Recorder
+ * call that used to fire on every ledger mutation has been removed;
+ * Postgres is the durability layer now.
  *
  * NOTE (flagged for review): getCurrentTier, getNextTier, and
  * calculateEarnedPoints used to fetch their own points/config from
@@ -93,12 +93,12 @@ function rowToLedgerEntry(row: LoyaltyLedgerRow): LoyaltyLedgerEntry {
 }
 
 async function upsertConfig(
-  ownerId: string,
+  userId: string,
   status: "draft" | "published",
   config: LoyaltyConfig,
 ): Promise<void> {
   const values = {
-    ownerId,
+    userId,
     status,
     tiers: config.tiers,
     pointsPerPurchase: config.pointsPerPurchase,
@@ -110,7 +110,7 @@ async function upsertConfig(
     .insert(loyaltyConfig)
     .values(values)
     .onConflictDoUpdate({
-      target: [loyaltyConfig.ownerId, loyaltyConfig.status],
+      target: [loyaltyConfig.userId, loyaltyConfig.status],
       set: values,
     });
 }
@@ -120,11 +120,11 @@ async function upsertConfig(
 const dbGetConfig = createServerFn({ method: "GET" })
   .validator((status: "draft" | "published") => status)
   .handler(async ({ data: status }): Promise<LoyaltyConfig> => {
-    const ownerId = getOrCreateOwnerId();
+    const userId = await getUserId();
     const rows = await db()
       .select()
       .from(loyaltyConfig)
-      .where(and(eq(loyaltyConfig.ownerId, ownerId), eq(loyaltyConfig.status, status)));
+      .where(and(eq(loyaltyConfig.userId, userId), eq(loyaltyConfig.status, status)));
     return rows[0] ? rowToConfig(rows[0]) : structuredClone(DEFAULT_CONFIG);
   });
 
@@ -132,23 +132,23 @@ const dbSaveDraftConfig = createServerFn({ method: "POST" })
   .validator((config: LoyaltyConfig) => config)
   .handler(async ({ data: config }): Promise<void> => {
     await requireAdmin();
-    await upsertConfig(getOrCreateOwnerId(), "draft", config);
+    await upsertConfig(await getUserId(), "draft", config);
   });
 
 const dbPublishConfig = createServerFn({ method: "POST" })
   .validator((config: LoyaltyConfig) => config)
   .handler(async ({ data: config }): Promise<void> => {
     await requireAdmin();
-    await upsertConfig(getOrCreateOwnerId(), "published", config);
+    await upsertConfig(await getUserId(), "published", config);
   });
 
 const dbHasPublishedConfig = createServerFn({ method: "GET" }).handler(
   async (): Promise<boolean> => {
-    const ownerId = getOrCreateOwnerId();
+    const userId = await getUserId();
     const rows = await db()
       .select()
       .from(loyaltyConfig)
-      .where(and(eq(loyaltyConfig.ownerId, ownerId), eq(loyaltyConfig.status, "published")));
+      .where(and(eq(loyaltyConfig.userId, userId), eq(loyaltyConfig.status, "published")));
     return rows.length > 0;
   },
 );
@@ -157,11 +157,11 @@ const dbHasPublishedConfig = createServerFn({ method: "GET" }).handler(
 
 const dbGetLedger = createServerFn({ method: "GET" }).handler(
   async (): Promise<LoyaltyLedgerEntry[]> => {
-    const ownerId = getOrCreateOwnerId();
+    const userId = await getUserId();
     const rows = await db()
       .select()
       .from(loyaltyLedger)
-      .where(eq(loyaltyLedger.ownerId, ownerId))
+      .where(eq(loyaltyLedger.userId, userId))
       .orderBy(desc(loyaltyLedger.timestamp));
     return rows.map(rowToLedgerEntry);
   },
@@ -170,13 +170,13 @@ const dbGetLedger = createServerFn({ method: "GET" }).handler(
 const dbSaveLedger = createServerFn({ method: "POST" })
   .validator((entries: LoyaltyLedgerEntry[]) => entries)
   .handler(async ({ data: entries }): Promise<void> => {
-    const ownerId = getOrCreateOwnerId();
+    const userId = await getUserId();
     const database = db();
-    await database.delete(loyaltyLedger).where(eq(loyaltyLedger.ownerId, ownerId));
+    await database.delete(loyaltyLedger).where(eq(loyaltyLedger.userId, userId));
     if (entries.length === 0) return;
     await database.insert(loyaltyLedger).values(
       entries.map((entry) => ({
-        ownerId,
+        userId,
         type: entry.type,
         points: entry.points,
         description: entry.description,
@@ -188,11 +188,11 @@ const dbSaveLedger = createServerFn({ method: "POST" })
 const dbAddLedgerEntry = createServerFn({ method: "POST" })
   .validator((entry: Omit<LoyaltyLedgerEntry, "id" | "timestamp">) => entry)
   .handler(async ({ data: entry }): Promise<LoyaltyLedgerEntry> => {
-    const ownerId = getOrCreateOwnerId();
+    const userId = await getUserId();
     const [row] = await db()
       .insert(loyaltyLedger)
       .values({
-        ownerId,
+        userId,
         type: entry.type,
         points: entry.points,
         description: entry.description,
@@ -204,11 +204,11 @@ const dbAddLedgerEntry = createServerFn({ method: "POST" })
 
 const dbGetCurrentPoints = createServerFn({ method: "GET" }).handler(
   async (): Promise<number> => {
-    const ownerId = getOrCreateOwnerId();
+    const userId = await getUserId();
     const rows = await db()
       .select()
       .from(loyaltyLedger)
-      .where(eq(loyaltyLedger.ownerId, ownerId));
+      .where(eq(loyaltyLedger.userId, userId));
     return rows.reduce((sum, entry) => {
       if (entry.type === "earned" || entry.type === "bonus") return sum + entry.points;
       if (entry.type === "redeemed") return sum - entry.points;

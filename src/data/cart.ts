@@ -3,15 +3,15 @@ import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { cartItems, cartState, type CartItemRow, type CartStateRow } from "~/db/schema";
-import { getOrCreateOwnerId } from "~/lib/ownerId";
+import { getUserId } from "~/lib/getUserId";
 
 /**
  * Phase 3 (Step 26): DB-backed cart, replacing the localStorage version.
- * Rows are keyed by the anonymous ownerId cookie (src/lib/ownerId.ts) rather
- * than a real user_id — swap once Better Auth lands. Flight Recorder calls
- * that used to fire on every mutation here have been removed; Postgres is
- * the durability layer now, and its replacement audit trail is a separate
- * future task.
+ * Rows are keyed by the Better Auth user_id (src/lib/getUserId.ts) — every
+ * visitor, guest or logged-in, has one via the `anonymous` plugin. Flight
+ * Recorder calls that used to fire on every mutation here have been removed;
+ * Postgres is the durability layer now, and its replacement audit trail is a
+ * separate future task.
  *
  * Each public function below is a plain async wrapper around an internal
  * createServerFn — this keeps the original call signature (no `{ data }`
@@ -90,11 +90,11 @@ function rowToStateFields(row: CartStateRow): CartStateFields {
   };
 }
 
-async function loadCart(ownerId: string): Promise<CartState> {
+async function loadCart(userId: string): Promise<CartState> {
   const database = db();
   const [items, stateRows] = await Promise.all([
-    database.select().from(cartItems).where(eq(cartItems.ownerId, ownerId)),
-    database.select().from(cartState).where(eq(cartState.ownerId, ownerId)),
+    database.select().from(cartItems).where(eq(cartItems.userId, userId)),
+    database.select().from(cartState).where(eq(cartState.userId, userId)),
   ]);
   return {
     items: items.map(rowToCartItem),
@@ -107,7 +107,7 @@ async function loadCart(ownerId: string): Promise<CartState> {
  *  is always bumped to now. */
 async function upsertCartState(
   database: ReturnType<typeof db>,
-  ownerId: string,
+  userId: string,
   patch: Partial<{
     isAbandoned: boolean;
     abandonedAt: Date | null;
@@ -121,7 +121,7 @@ async function upsertCartState(
   await database
     .insert(cartState)
     .values({
-      ownerId,
+      userId,
       lastActivity: now,
       isAbandoned: patch.isAbandoned ?? false,
       abandonedAt: patch.abandonedAt ?? null,
@@ -131,7 +131,7 @@ async function upsertCartState(
       recoveryRedeemed: patch.recoveryRedeemed ?? false,
     })
     .onConflictDoUpdate({
-      target: cartState.ownerId,
+      target: cartState.userId,
       set: { lastActivity: now, ...patch },
     });
 }
@@ -139,19 +139,19 @@ async function upsertCartState(
 /* ─── Internal server functions ─── */
 
 const dbGetCart = createServerFn({ method: "GET" }).handler(
-  async (): Promise<CartState> => loadCart(getOrCreateOwnerId()),
+  async (): Promise<CartState> => loadCart(await getUserId()),
 );
 
 const dbAddToCart = createServerFn({ method: "POST" })
   .validator((item: Omit<CartItem, "addedAt">) => item)
   .handler(async ({ data: item }): Promise<CartState> => {
-    const ownerId = getOrCreateOwnerId();
+    const userId = await getUserId();
     const database = db();
 
     const existing = await database
       .select()
       .from(cartItems)
-      .where(and(eq(cartItems.ownerId, ownerId), eq(cartItems.productId, item.productId)));
+      .where(and(eq(cartItems.userId, userId), eq(cartItems.productId, item.productId)));
 
     if (existing[0]) {
       await database
@@ -160,7 +160,7 @@ const dbAddToCart = createServerFn({ method: "POST" })
         .where(eq(cartItems.id, existing[0].id));
     } else {
       await database.insert(cartItems).values({
-        ownerId,
+        userId,
         productId: item.productId,
         title: item.title,
         author: item.author,
@@ -172,28 +172,28 @@ const dbAddToCart = createServerFn({ method: "POST" })
       });
     }
 
-    await upsertCartState(database, ownerId, { isAbandoned: false });
-    return loadCart(ownerId);
+    await upsertCartState(database, userId, { isAbandoned: false });
+    return loadCart(userId);
   });
 
 const dbRemoveFromCart = createServerFn({ method: "POST" })
   .validator((productId: string) => productId)
   .handler(async ({ data: productId }): Promise<CartState> => {
-    const ownerId = getOrCreateOwnerId();
+    const userId = await getUserId();
     const database = db();
     await database
       .delete(cartItems)
-      .where(and(eq(cartItems.ownerId, ownerId), eq(cartItems.productId, productId)));
-    await upsertCartState(database, ownerId, {});
-    return loadCart(ownerId);
+      .where(and(eq(cartItems.userId, userId), eq(cartItems.productId, productId)));
+    await upsertCartState(database, userId, {});
+    return loadCart(userId);
   });
 
 const dbClearCart = createServerFn({ method: "POST" }).handler(
   async (): Promise<CartState> => {
-    const ownerId = getOrCreateOwnerId();
+    const userId = await getUserId();
     const database = db();
-    await database.delete(cartItems).where(eq(cartItems.ownerId, ownerId));
-    await upsertCartState(database, ownerId, {
+    await database.delete(cartItems).where(eq(cartItems.userId, userId));
+    await upsertCartState(database, userId, {
       isAbandoned: false,
       abandonedAt: null,
       recoveryCoupon: null,
@@ -201,33 +201,33 @@ const dbClearCart = createServerFn({ method: "POST" }).handler(
       recoveryOffered: false,
       recoveryRedeemed: false,
     });
-    return loadCart(ownerId);
+    return loadCart(userId);
   },
 );
 
 const dbGetCartItemCount = createServerFn({ method: "GET" }).handler(
   async (): Promise<number> => {
-    const cart = await loadCart(getOrCreateOwnerId());
+    const cart = await loadCart(await getUserId());
     return cart.items.reduce((sum, i) => sum + i.quantity, 0);
   },
 );
 
 const dbGetCartTotal = createServerFn({ method: "GET" }).handler(
   async (): Promise<number> => {
-    const cart = await loadCart(getOrCreateOwnerId());
+    const cart = await loadCart(await getUserId());
     return cart.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
   },
 );
 
 const dbRecordActivity = createServerFn({ method: "POST" }).handler(
   async (): Promise<void> => {
-    await upsertCartState(db(), getOrCreateOwnerId(), {});
+    await upsertCartState(db(), await getUserId(), {});
   },
 );
 
 const dbCheckAbandoned = createServerFn({ method: "GET" }).handler(
   async (): Promise<boolean> => {
-    const cart = await loadCart(getOrCreateOwnerId());
+    const cart = await loadCart(await getUserId());
     const elapsed = Date.now() - new Date(cart.lastActivity).getTime();
     return elapsed > IDLE_THRESHOLD_MS;
   },
@@ -235,22 +235,22 @@ const dbCheckAbandoned = createServerFn({ method: "GET" }).handler(
 
 const dbCheckCartAbandoned = createServerFn({ method: "POST" }).handler(
   async (): Promise<CartState> => {
-    const ownerId = getOrCreateOwnerId();
-    const cart = await loadCart(ownerId);
+    const userId = await getUserId();
+    const cart = await loadCart(userId);
     if (cart.items.length === 0) return cart;
 
     const elapsed = Date.now() - new Date(cart.lastActivity).getTime();
     const isAbandoned = elapsed > IDLE_THRESHOLD_MS;
 
     if (isAbandoned && !cart.isAbandoned) {
-      await upsertCartState(db(), ownerId, {
+      await upsertCartState(db(), userId, {
         isAbandoned: true,
         abandonedAt: new Date(),
         recoveryCoupon: RECOVERY_COUPON,
         recoveryDiscount: RECOVERY_DISCOUNT,
         recoveryOffered: true,
       });
-      return loadCart(ownerId);
+      return loadCart(userId);
     }
     return cart;
   },
@@ -258,30 +258,30 @@ const dbCheckCartAbandoned = createServerFn({ method: "POST" }).handler(
 
 const dbRedeemRecoveryCoupon = createServerFn({ method: "POST" }).handler(
   async (): Promise<CartState> => {
-    const ownerId = getOrCreateOwnerId();
-    await upsertCartState(db(), ownerId, {
+    const userId = await getUserId();
+    await upsertCartState(db(), userId, {
       recoveryRedeemed: true,
       isAbandoned: false,
       recoveryOffered: false,
     });
-    return loadCart(ownerId);
+    return loadCart(userId);
   },
 );
 
 const dbDismissRecovery = createServerFn({ method: "POST" }).handler(
   async (): Promise<CartState> => {
-    const ownerId = getOrCreateOwnerId();
-    await upsertCartState(db(), ownerId, {
+    const userId = await getUserId();
+    await upsertCartState(db(), userId, {
       isAbandoned: false,
       recoveryOffered: false,
     });
-    return loadCart(ownerId);
+    return loadCart(userId);
   },
 );
 
 const dbGetRecoveryCouponCode = createServerFn({ method: "GET" }).handler(
   async (): Promise<string | null> => {
-    const cart = await loadCart(getOrCreateOwnerId());
+    const cart = await loadCart(await getUserId());
     if (cart.recoveryOffered && !cart.recoveryRedeemed && cart.recoveryCoupon) {
       return cart.recoveryCoupon;
     }
@@ -291,7 +291,7 @@ const dbGetRecoveryCouponCode = createServerFn({ method: "GET" }).handler(
 
 const dbGetRecoveryDiscountPercent = createServerFn({ method: "GET" }).handler(
   async (): Promise<number | null> => {
-    const cart = await loadCart(getOrCreateOwnerId());
+    const cart = await loadCart(await getUserId());
     if (cart.recoveryOffered && !cart.recoveryRedeemed && cart.recoveryDiscount) {
       return cart.recoveryDiscount;
     }
@@ -301,7 +301,7 @@ const dbGetRecoveryDiscountPercent = createServerFn({ method: "GET" }).handler(
 
 const dbGetRecoveryPromoCode = createServerFn({ method: "GET" }).handler(
   async (): Promise<{ code: string; discount: number } | null> => {
-    const cart = await loadCart(getOrCreateOwnerId());
+    const cart = await loadCart(await getUserId());
     if (cart.recoveryRedeemed && cart.recoveryCoupon && cart.recoveryDiscount) {
       return { code: cart.recoveryCoupon, discount: cart.recoveryDiscount };
     }

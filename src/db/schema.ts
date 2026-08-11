@@ -10,6 +10,7 @@ import {
   numeric,
   primaryKey,
 } from "drizzle-orm/pg-core";
+import { user } from "~/db/auth-schema";
 
 /**
  * Phase 1 of Step 26 (Backend Migration): schema only.
@@ -81,13 +82,15 @@ export type NewCatalogItemRow = typeof catalogItems.$inferInsert;
 
 /**
  * Phase 2/3 (Step 26): cart, wallet, and loyalty tables. All keyed by
- * `ownerId` — a browser-scoped anonymous cookie ID from src/lib/ownerId.ts,
- * standing in for a real `user_id` until Better Auth is wired in.
+ * `userId`, a real Better Auth `user.id` — every visitor (guest or
+ * logged-in) has one via the `anonymous` plugin (see src/lib/auth.ts).
  */
 
 export const cartItems = pgTable("cart_items", {
   id: uuid("id").defaultRandom().primaryKey(),
-  ownerId: text("owner_id").notNull(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
   productId: text("product_id").notNull(),
   title: text("title").notNull(),
   author: text("author").notNull(),
@@ -100,7 +103,9 @@ export const cartItems = pgTable("cart_items", {
 });
 
 export const cartState = pgTable("cart_state", {
-  ownerId: text("owner_id").primaryKey(),
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
   lastActivity: timestamp("last_activity").notNull().defaultNow(),
   isAbandoned: boolean("is_abandoned").notNull().default(false),
   abandonedAt: timestamp("abandoned_at"),
@@ -116,7 +121,9 @@ export type CartStateRow = typeof cartState.$inferSelect;
 export type NewCartStateRow = typeof cartState.$inferInsert;
 
 export const wallet = pgTable("wallet", {
-  ownerId: text("owner_id").primaryKey(),
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
   credits: numeric("credits", { precision: 10, scale: 2 }).notNull().default("50"),
   totalPurchased: numeric("total_purchased", { precision: 10, scale: 2 })
     .notNull()
@@ -138,7 +145,9 @@ export type NewWalletRow = typeof wallet.$inferInsert;
 export const loyaltyConfig = pgTable(
   "loyalty_config",
   {
-    ownerId: text("owner_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
     status: text("status").notNull(), // 'draft' | 'published'
     tiers: jsonb("tiers")
       .notNull()
@@ -154,7 +163,7 @@ export const loyaltyConfig = pgTable(
     minimumRedeem: integer("minimum_redeem").notNull().default(50),
   },
   (table) => ({
-    pk: primaryKey({ columns: [table.ownerId, table.status] }),
+    pk: primaryKey({ columns: [table.userId, table.status] }),
   }),
 );
 
@@ -163,7 +172,9 @@ export type NewLoyaltyConfigRow = typeof loyaltyConfig.$inferInsert;
 
 export const loyaltyLedger = pgTable("loyalty_ledger", {
   id: uuid("id").defaultRandom().primaryKey(),
-  ownerId: text("owner_id").notNull(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
   type: text("type").notNull(), // earned | redeemed | bonus
   points: integer("points").notNull(),
   description: text("description").notNull(),
@@ -176,7 +187,9 @@ export type NewLoyaltyLedgerRow = typeof loyaltyLedger.$inferInsert;
 
 export const downloads = pgTable("downloads", {
   id: uuid("id").defaultRandom().primaryKey(),
-  ownerId: text("owner_id").notNull(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
   productId: text("product_id").notNull(),
   productTitle: text("product_title").notNull(),
   productAuthor: text("product_author").notNull(),
@@ -194,7 +207,9 @@ export type NewDownloadRow = typeof downloads.$inferInsert;
 
 export const refundClaims = pgTable("refund_claims", {
   id: uuid("id").defaultRandom().primaryKey(),
-  ownerId: text("owner_id").notNull(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
   downloadId: uuid("download_id").notNull(),
   productId: text("product_id").notNull(),
   productTitle: text("product_title").notNull(),
@@ -213,7 +228,7 @@ export type NewRefundClaimRow = typeof refundClaims.$inferInsert;
 /**
  * AI Librarian knowledge base source material, keyed to a `book_id`. Unlike
  * the tables above, this is global catalog content managed by the store
- * admin — not per-visitor state — so it deliberately has no `ownerId`
+ * admin — not per-visitor state — so it deliberately has no `userId`
  * column, matching how `catalogItems` is treated.
  */
 export const knowledgeRows = pgTable("knowledge_rows", {
@@ -229,7 +244,7 @@ export type NewKnowledgeRowRow = typeof knowledgeRows.$inferInsert;
 
 /**
  * Single global, admin-managed promotions settings row (Step 26). Like
- * knowledgeRows, this is not per-visitor state, so no ownerId column — the
+ * knowledgeRows, this is not per-visitor state, so no userId column — the
  * app always reads/writes the one row keyed by the fixed "global" id.
  */
 export const promoSettings = pgTable("promo_settings", {
@@ -248,8 +263,8 @@ export type NewPromoSettingsRow = typeof promoSettings.$inferInsert;
 /**
  * Public discussion comments on product pages (Step 26). Like knowledgeRows
  * and promoSettings, this is global content — not per-visitor state — so
- * there is deliberately no ownerId column. `author` is free text since no
- * real user identity exists yet (Better Auth is still deferred).
+ * there is deliberately no userId column. `author` is free text since
+ * comments aren't scoped to a poster's identity.
  */
 export const comments = pgTable("comments", {
   id: text("id").primaryKey(),
@@ -266,7 +281,7 @@ export type NewCommentRow = typeof comments.$inferInsert;
 /**
  * Single global, admin-managed license tier setting (Step 26 trust-boundary
  * decision). Like promoSettings, this is not per-visitor state, so no
- * ownerId column — the app always reads/writes the one row keyed by the
+ * userId column — the app always reads/writes the one row keyed by the
  * fixed "global" id. Self-hosted buyers can edit this row directly; that is
  * an accepted trade-off, not a bug — see src/data/licensing.ts.
  */
@@ -279,9 +294,9 @@ export type LicenseSettingsRow = typeof licenseSettings.$inferSelect;
 export type NewLicenseSettingsRow = typeof licenseSettings.$inferInsert;
 
 /**
- * Single global admin-credentials row (stopgap ahead of Better Auth). Same
- * shape as promoSettings/licenseSettings — no ownerId, one row keyed by the
- * fixed "global" id.
+ * Single global admin-credentials row (legacy passcode path — see
+ * src/lib/requireAdmin.ts). Same shape as promoSettings/licenseSettings — no
+ * userId, one row keyed by the fixed "global" id.
  *
  * `passcodeHash` is a verify-only argon2id hash — never reversible.
  * `recoveryEncrypted` deliberately is NOT a hash: the recovery phrase must

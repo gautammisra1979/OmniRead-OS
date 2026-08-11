@@ -4,6 +4,7 @@ import appCss from "~/styles/app.css?url";
 import { LanguageProvider } from "~/components/LanguageProvider";
 import { ThemeProvider } from "~/components/ThemeProvider";
 import { BrandingProvider } from "~/components/BrandingProvider";
+import { AnonymousAuthBoot } from "~/components/AnonymousAuthBoot";
 
 export const Route = createRootRoute({
   component: RootComponent,
@@ -27,6 +28,7 @@ function RootComponent() {
         <ThemeProvider defaultTheme="light" storageKey="omni-theme">
           <LanguageProvider>
             <BrandingProvider>
+              <AnonymousAuthBoot />
               {hydrated ? <Outlet /> : <div className="py-20 text-center font-bold font-serif">Loading Showcase Engine...</div>}
             </BrandingProvider>
           </LanguageProvider>

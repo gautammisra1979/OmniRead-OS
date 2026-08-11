@@ -54,6 +54,7 @@ import {
   type LicenseTier,
 } from "~/data/licensing";
 import { getRecoveryKey, logoutAdmin } from "~/data/adminRecovery";
+import { checkIsAdmin } from "~/lib/checkIsAdmin";
 import { dispatchLicenseChange } from "~/components/LicenseGate";
 import { authClient } from "~/lib/auth-client";
 import { OffboardingCenter } from "~/components/OffboardingCenter";
@@ -78,13 +79,36 @@ export const Route = createFileRoute("/admin")({
 
 function AdminDashboard() {
   const [authenticated, setAuthenticated] = useState(false);
-  // Whether the current request carries a real Better Auth session for a
-  // user with role "admin" — pending while the check is in flight. This is
+  // Whether the current request carries a real Better Auth session whose
+  // email matches ADMIN_EMAIL / ADMIN_EMAIL_BACKUP — checked server-side
+  // via checkIsAdmin() (src/lib/requireAdmin.ts), since admin status is
+  // computed live from env vars, not a client-readable field on the
+  // session. Pending while either check is in flight. This is
   // authoritative and checked before the sessionStorage flag below: a
   // client-side flag alone must never be enough to reach the dashboard.
   const { data: session, isPending: sessionPending } = authClient.useSession();
-  const hasAdminSession = !!session?.user && (session.user as { role?: string | null }).role === "admin";
+  const [hasAdminSession, setHasAdminSession] = useState(false);
+  const [adminCheckPending, setAdminCheckPending] = useState(true);
   const { t } = useLanguage();
+
+  useEffect(() => {
+    if (sessionPending) return;
+    if (!session?.user) {
+      setHasAdminSession(false);
+      setAdminCheckPending(false);
+      return;
+    }
+    let cancelled = false;
+    setAdminCheckPending(true);
+    checkIsAdmin().then((isAdmin) => {
+      if (cancelled) return;
+      setHasAdminSession(isAdmin);
+      setAdminCheckPending(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionPending, session?.user]);
 
   useEffect(() => {
     if (!hasAdminSession) return;
@@ -112,7 +136,7 @@ function AdminDashboard() {
     logoutAdmin();
   };
 
-  if (sessionPending) {
+  if (sessionPending || adminCheckPending) {
     return null;
   }
 
