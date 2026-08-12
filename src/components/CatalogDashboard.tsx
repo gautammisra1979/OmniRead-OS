@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef, type DragEvent, type ChangeEvent } from "react";
+import { upload } from "@vercel/blob/client";
 import { type CatalogItem, type CatalogStatus } from "~/data/catalog";
 import {
   getCatalogItems,
@@ -6,6 +7,7 @@ import {
   updateCatalogStatus,
   createCatalogItem,
 } from "~/db/queries";
+import { uploadCoverImage, deleteCatalogBlobs } from "~/lib/blob";
 import { useLanguage } from "~/components/LanguageProvider";
 
 function formatFileSize(bytes: number): string {
@@ -26,8 +28,9 @@ export function CatalogDashboard() {
   const [format, setFormat] = useState("PDF E-Book");
   const [description, setDescription] = useState("");
   const [coverImage, setCoverImage] = useState<string | null>(null);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
   const [mediaName, setMediaName] = useState("");
-  const [mediaDataUrl, setMediaDataUrl] = useState<string | null>(null);
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
 
   // Drag states
   const [coverDragOver, setCoverDragOver] = useState(false);
@@ -60,12 +63,14 @@ export function CatalogDashboard() {
     setFormat("PDF E-Book");
     setDescription("");
     setCoverImage(null);
+    setCoverFile(null);
     setMediaName("");
-    setMediaDataUrl(null);
+    setMediaFile(null);
   };
 
   const handleCoverFile = (file: File) => {
     if (!file.type.match(/^image\/(png|jpeg)$/)) return;
+    setCoverFile(file);
     const reader = new FileReader();
     reader.onload = (e) => setCoverImage(e.target?.result as string);
     reader.readAsDataURL(file);
@@ -76,9 +81,7 @@ export function CatalogDashboard() {
     const ext = "." + file.name.split(".").pop()?.toLowerCase();
     if (!allowed.includes(ext)) return;
     setMediaName(file.name);
-    const reader = new FileReader();
-    reader.onload = (e) => setMediaDataUrl(e.target?.result as string);
-    reader.readAsDataURL(file);
+    setMediaFile(file);
   };
 
   const makeDropHandler = (
@@ -106,23 +109,31 @@ export function CatalogDashboard() {
     author.trim().length > 0 &&
     parseFloat(price) > 0;
 
-  // Cover art and media uploads aren't wired to Postgres yet (Step 26 Phase
-  // 2, item 3 — Vercel Blob). The schema only has cover_url/media_url
-  // columns and this form still produces base64 data URLs, so publishing
-  // with either attached is blocked at the button (see canPublish below)
-  // rather than silently discarding the file or writing it somewhere the
-  // table beneath never reads from again.
-  const hasBlockedMedia = !!coverImage || !!mediaDataUrl;
-  const canPublish = isFormValid && !hasBlockedMedia;
-
-  // DB-backed (Step 26 Phase 2, POC #2 follow-up) — text-only items (no
-  // cover/media attached) publish straight to Postgres via the same
-  // createCatalogItem() the CSV import path uses below, then refresh() so
-  // the new row shows up in the table immediately. Only reachable when
-  // canPublish is true, i.e. never with a cover/media file attached.
+  // DB-backed (Step 26 Phase 2, POC #2 follow-up), now with Vercel Blob
+  // wired in (Step 26 Phase 2, item 3): cover art uploads through the
+  // uploadCoverImage server function (public store), media files upload
+  // client-side via @vercel/blob/client's upload() against the private
+  // store (src/routes/api/blob/media-upload.ts). Both resolve to a URL
+  // before createCatalogItem() is called.
   const handlePublish = async () => {
-    if (!canPublish) return;
+    if (!isFormValid) return;
     try {
+      let coverUrl: string | null = null;
+      if (coverFile) {
+        const formData = new FormData();
+        formData.append("cover", coverFile);
+        coverUrl = await uploadCoverImage({ data: formData });
+      }
+
+      let mediaUrl: string | null = null;
+      if (mediaFile) {
+        const result = await upload(mediaFile.name, mediaFile, {
+          access: "private",
+          handleUploadUrl: "/api/blob/media-upload",
+        });
+        mediaUrl = result.url;
+      }
+
       const item = await createCatalogItem({
         data: {
           title: title.trim(),
@@ -131,8 +142,8 @@ export function CatalogDashboard() {
           type: format === "PDF E-Book" ? "ebook" : format === "MP3 Audiobook" ? "audiobook" : "video",
           format,
           description: description.trim(),
-          coverUrl: null,
-          mediaUrl: null,
+          coverUrl,
+          mediaUrl,
           mediaName: mediaName.trim() || null,
         },
       });
@@ -156,7 +167,18 @@ export function CatalogDashboard() {
     // DB-backed (Step 26 Phase 2, POC #2) — was a synchronous localStorage
     // write. refresh() is deliberately chained after the delete resolves,
     // not fired in parallel, so the table doesn't briefly show a stale row.
-    deleteCatalogItem({ data: id })
+    // Blob cleanup (Step 26 Phase 2, item 3) runs first: if it fails, the
+    // catalog row is left in place rather than orphaning the Blob object.
+    const item = items.find((i) => i.id === id);
+    const coverUrl = item?.coverImage ?? null;
+    const mediaUrl = item?.mediaFile.dataUrl ?? null;
+    const cleanup =
+      coverUrl || mediaUrl
+        ? deleteCatalogBlobs({ data: { coverUrl, mediaUrl } })
+        : Promise.resolve();
+
+    cleanup
+      .then(() => deleteCatalogItem({ data: id }))
       .then(refresh)
       .catch(() => showToast("Delete failed — check connection and retry."));
   };
@@ -323,7 +345,7 @@ export function CatalogDashboard() {
                   <img src={coverImage} alt="Cover preview" className="max-h-24 max-w-36 rounded object-contain" />
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); setCoverImage(null); if (coverInputRef.current) coverInputRef.current.value = ""; }}
+                    onClick={(e) => { e.stopPropagation(); setCoverImage(null); setCoverFile(null); if (coverInputRef.current) coverInputRef.current.value = ""; }}
                     className="rounded-lg border border-[var(--color-border,#334155)] px-3 py-1 text-xs font-medium text-[var(--color-text-muted,#94a3b8)] hover:bg-[var(--color-surface,#1e293b)]"
                   >
                     {t("admin.catalog.remove")}
@@ -374,16 +396,16 @@ export function CatalogDashboard() {
                 className="hidden"
                 aria-hidden="true"
               />
-              {mediaDataUrl ? (
+              {mediaFile ? (
                 <div className="flex flex-col items-center gap-2">
                   <svg className="h-8 w-8 text-[var(--color-primary,#6366f1)]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                   </svg>
                   <p className="text-xs font-medium text-[var(--color-text,#f8fafc)] truncate max-w-full">{mediaName}</p>
-                  <p className="text-xs text-[var(--color-text-muted,#94a3b8)]">{formatFileSize(mediaDataUrl.length * 0.75)}</p>
+                  <p className="text-xs text-[var(--color-text-muted,#94a3b8)]">{formatFileSize(mediaFile.size)}</p>
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); setMediaDataUrl(null); setMediaName(""); if (mediaInputRef.current) mediaInputRef.current.value = ""; }}
+                    onClick={(e) => { e.stopPropagation(); setMediaFile(null); setMediaName(""); if (mediaInputRef.current) mediaInputRef.current.value = ""; }}
                     className="rounded-lg border border-[var(--color-border,#334155)] px-3 py-1 text-xs font-medium text-[var(--color-text-muted,#94a3b8)] hover:bg-[var(--color-surface,#1e293b)]"
                   >
                     {t("admin.catalog.remove")}
@@ -405,18 +427,13 @@ export function CatalogDashboard() {
         <div className="mt-6">
           <button
             type="button"
-            disabled={!canPublish}
+            disabled={!isFormValid}
             onClick={handlePublish}
             className="rounded-lg px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
             style={{ backgroundColor: "var(--color-primary,#6366f1)" }}
           >
             {t("admin.catalog.publish")}
           </button>
-          {hasBlockedMedia && (
-            <p className="mt-2 text-xs text-amber-400" role="status">
-              Cover art and media files aren't wired to the database yet — publishing is blocked until Vercel Blob storage (Phase 2) lands. Remove the attached file(s) below to publish this item without them.
-            </p>
-          )}
         </div>
       </div>
 
