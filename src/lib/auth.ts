@@ -53,9 +53,44 @@ function isReservedAdminEmail(email: string): boolean {
   );
 }
 
+/**
+ * Better Auth defaults trustedOrigins to just [baseURL] when omitted,
+ * which rejects requests from any other origin — this is what caused
+ * a same-password auth failure when a request came from :3001 while
+ * BETTER_AUTH_URL pointed at :3000 (Session 17). Always trust
+ * BETTER_AUTH_URL itself; in non-production, also trust the two local
+ * dev ports this project's two-terminal setup uses. An optional
+ * BETTER_AUTH_TRUSTED_ORIGINS env var (comma-separated) lets a
+ * self-hosted buyer add additional origins — staging domains, custom
+ * ports — without editing source.
+ */
+function getTrustedOrigins(): string[] {
+  const origins = new Set<string>();
+
+  if (process.env.BETTER_AUTH_URL) {
+    origins.add(process.env.BETTER_AUTH_URL);
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    origins.add("http://localhost:3000");
+    origins.add("http://localhost:3001");
+  }
+
+  const extra = process.env.BETTER_AUTH_TRUSTED_ORIGINS;
+  if (extra) {
+    for (const origin of extra.split(",")) {
+      const trimmed = origin.trim();
+      if (trimmed) origins.add(trimmed);
+    }
+  }
+
+  return Array.from(origins);
+}
+
 export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL,
   secret: process.env.BETTER_AUTH_SECRET,
+  trustedOrigins: getTrustedOrigins(),
   database: drizzleAdapter(drizzle(sql()), {
     provider: "pg",
     schema: authSchema,
