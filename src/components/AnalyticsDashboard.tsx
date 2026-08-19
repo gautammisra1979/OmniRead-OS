@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { getCatalogItems, type CatalogItem } from "~/data/catalog";
+import { getCatalogItems } from "~/db/queries";
+import type { CatalogItem } from "~/data/catalog";
 import { useLanguage } from "~/components/LanguageProvider";
 
 /* ------------------------------------------------------------------ */
@@ -491,7 +492,7 @@ export function AnalyticsDashboard() {
   const [trend, setTrend] = useState<"up" | "down" | "flat">("flat");
 
   const refresh = useCallback(() => {
-    setItems(getCatalogItems());
+    getCatalogItems().then(setItems).catch(() => setItems([]));
     setTrend(getTrend());
     // Dispatch analytics refresh event so other components can react
     if (typeof window !== "undefined") {

@@ -202,3 +202,18 @@ export const updateCatalogRating = createServerFn({ method: "POST" })
       })
       .where(eq(catalogItems.id, data.id));
   });
+
+export const updateCatalogAccess = createServerFn({ method: "POST" })
+  .validator(
+    (input: { id: string; allowLibrarian: boolean; allowChallenge: boolean }) => input,
+  )
+  .handler(async ({ data }): Promise<void> => {
+    await requireAdmin();
+    await db()
+      .update(catalogItems)
+      .set({
+        allowLibrarian: data.allowLibrarian,
+        allowChallenge: data.allowChallenge,
+      })
+      .where(eq(catalogItems.id, data.id));
+  });

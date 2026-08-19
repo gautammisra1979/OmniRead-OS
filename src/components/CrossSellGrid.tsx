@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { getCatalogItems, type CatalogItem } from "~/data/catalog";
+import { getCatalogItems } from "~/db/queries";
+import type { CatalogItem } from "~/data/catalog";
 import { getActiveReferrer } from "~/data/affiliate";
 
 interface CrossSellGridProps {
@@ -29,14 +30,18 @@ export function CrossSellGrid({ product }: CrossSellGridProps) {
   const [refParam, setRefParam] = useState("");
 
   useEffect(() => {
-    const all = getCatalogItems().filter((item) => item.id !== product.id);
-    const scored = all
-      .map((item) => ({ item, score: scoreMatch(product, item) }))
-      .filter(({ score }) => score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
-      .map(({ item }) => item);
-    setMatches(scored);
+    getCatalogItems()
+      .then((all) => {
+        const scored = all
+          .filter((item) => item.id !== product.id)
+          .map((item) => ({ item, score: scoreMatch(product, item) }))
+          .filter(({ score }) => score > 0)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 3)
+          .map(({ item }) => item);
+        setMatches(scored);
+      })
+      .catch(() => setMatches([]));
 
     const activeRef = getActiveReferrer();
     if (activeRef) setRefParam(activeRef.ref);

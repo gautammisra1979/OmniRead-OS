@@ -11,7 +11,8 @@ import {
   getEstimatedDollarValue,
   redeemPoints,
 } from "~/data/loyalty";
-import { getCatalogItems } from "~/data/catalog";
+import { getCatalogItems } from "~/db/queries";
+import type { CatalogItem } from "~/data/catalog";
 
 // Non-empty placeholder so getCurrentTier/getNextTier have a tier to fall
 // back on during the brief window before the real published config loads.
@@ -33,11 +34,13 @@ export function ProgressHub() {
   const [redeemStatus, setRedeemStatus] = useState<"idle" | "success" | "error">("idle");
   const [sortField, setSortField] = useState<"timestamp" | "points">("timestamp");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
 
   const refresh = useCallback(() => {
     getPublishedConfig().then(setConfig);
     getCurrentPoints().then(setPoints);
     getLedger().then(setLedger);
+    getCatalogItems().then(setCatalogItems).catch(() => setCatalogItems([]));
   }, []);
 
   useEffect(() => {
@@ -81,7 +84,6 @@ export function ProgressHub() {
     return aVal < bVal ? -1 : 1;
   });
 
-  const catalogItems = getCatalogItems();
   const totalBonus = catalogItems.reduce((sum, item) => sum + (item.promoFlatBonus ?? 0), 0);
 
   return (

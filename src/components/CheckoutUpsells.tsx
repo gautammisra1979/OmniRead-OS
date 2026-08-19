@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import { getUpsellOffers, saveUpsellOffers, generateUpsellOffers, getMembershipPlans, saveMembershipPlans, upgradeMembership, getUserMembership, type MembershipPlan, type MembershipTier } from "~/data/membership";
-import { getCatalogItems, type CatalogItem } from "~/data/catalog";
+import { getCatalogItems, updateCatalogAccess } from "~/db/queries";
+import type { CatalogItem } from "~/data/catalog";
 
 export function CheckoutUpsells() {
   const { t } = useLanguage();
@@ -185,7 +186,7 @@ export function CatalogAccessControl() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    setItems(getCatalogItems());
+    getCatalogItems().then(setItems).catch(() => setItems([]));
   }, []);
 
   const handleToggle = useCallback((idx: number, field: "allowLibrarian" | "allowChallenge") => {
@@ -197,11 +198,20 @@ export function CatalogAccessControl() {
   }, []);
 
   const handleSave = useCallback(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("omnimedos_catalog", JSON.stringify(items));
-    }
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    Promise.all(
+      items.map((item) =>
+        updateCatalogAccess({
+          data: {
+            id: item.id,
+            allowLibrarian: item.allowLibrarian ?? true,
+            allowChallenge: item.allowChallenge ?? true,
+          },
+        }),
+      ),
+    ).then(() => {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    });
   }, [items]);
 
   if (items.length === 0) {
