@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { getCatalogItems, type CatalogItem } from "~/data/catalog";
+import { getCatalogItems } from "~/db/queries";
+import type { CatalogItem } from "~/data/catalog";
 import { getAllProducts, applyRecoveryDiscount, type Product } from "~/data/products";
 import { getFeaturedProductId, getLatestCatalogItem } from "~/data/layoutMatrix";
 import {
@@ -16,9 +17,25 @@ const MAX_SECONDARY = 10;
 
 export function SpotlightLayout() {
   const { t } = useLanguage();
-  const catalogItems = useMemo(() => getCatalogItems(), []);
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
   const [promoSettings, setPromoSettings] = useState<PromoSettings>(DEFAULT_PROMO_SETTINGS);
   const [recoveryPromo, setRecoveryPromo] = useState<{ code: string; discount: number } | null>(null);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [productsLoaded, setProductsLoaded] = useState(false);
+
+  // DB-backed catalog items (Step 26 Tier B) — was a synchronous localStorage read.
+  useEffect(() => {
+    let cancelled = false;
+    getCatalogItems().then((items) => {
+      if (cancelled) return;
+      setCatalogItems(items);
+      setCatalogLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // DB-backed promo settings + this visitor's personal recovery discount
   // (Step 26 Phase 4) — were synchronous localStorage reads.
@@ -34,7 +51,20 @@ export function SpotlightLayout() {
     };
   }, []);
 
-  const allProducts = useMemo(() => getAllProducts(promoSettings), [promoSettings]);
+  // DB-backed products (Step 26 Tier B) — was a synchronous getAllProducts() call.
+  useEffect(() => {
+    let cancelled = false;
+    getAllProducts(promoSettings).then((all) => {
+      if (cancelled) return;
+      setAllProducts(all);
+      setProductsLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [promoSettings]);
+
+  if (!catalogLoaded || !productsLoaded) return null;
 
   const featuredId = getFeaturedProductId();
   let featuredProduct: Product | null = null;

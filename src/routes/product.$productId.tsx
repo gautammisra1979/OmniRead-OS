@@ -54,9 +54,10 @@ function RouteComponent() {
     // (Step 26 Phase 4) — were synchronous localStorage reads. The recovery
     // discount, if redeemed, overrides the storewide promo for this
     // visitor's own view only — it's never written back into PromoSettings.
-    Promise.all([getPromoSettings(), getRecoveryPromoCode()]).then(([settings, recovery]) => {
+    Promise.all([getPromoSettings(), getRecoveryPromoCode()]).then(async ([settings, recovery]) => {
       if (cancelled) return;
-      const all = getAllProducts(settings);
+      const all = await getAllProducts(settings);
+      if (cancelled) return;
       const found = all.find((p) => p.id === productId) ?? null;
       const withRecovery = found ? applyRecoveryDiscount(found, recovery) : null;
       setProduct(withRecovery);

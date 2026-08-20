@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { getComingSoonCatalogItems, getCatalogItems } from "~/data/catalog";
 import { getAllProducts, applyRecoveryDiscount, type Product } from "~/data/products";
 import { getPromoSettings, DEFAULT_PROMO_SETTINGS, type PromoSettings } from "~/data/promotions";
 import { getRecoveryPromoCode } from "~/data/cart";
@@ -33,6 +32,7 @@ export function ComingSoonSection() {
   const [hydrated, setHydrated] = useState(false);
   const [promoSettings, setPromoSettings] = useState<PromoSettings>(DEFAULT_PROMO_SETTINGS);
   const [recoveryPromo, setRecoveryPromo] = useState<{ code: string; discount: number } | null>(null);
+  const [displayItems, setDisplayItems] = useState<Product[]>([]);
 
   // Hydration guard — skip SSR render to avoid window access during SSR
   useEffect(() => {
@@ -59,29 +59,16 @@ export function ComingSoonSection() {
       if (cancelled) return;
       setPromoSettings(settings);
       setRecoveryPromo(recovery);
+      getAllProducts(settings).then((all) => {
+        if (cancelled) return;
+        const withRecovery = all.map((p) => applyRecoveryDiscount(p, recovery));
+        setDisplayItems(withRecovery.filter((p) => p.status === "coming-soon"));
+      });
     });
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  if (!hydrated) return null;
-
-  const allProducts = getAllProducts(promoSettings).map((p) => applyRecoveryDiscount(p, recoveryPromo));
-  const comingSoonItems = allProducts.filter((p) => p.status === "coming-soon");
-
-  // Also check raw catalog items for coming-soon status
-  const catalogItems = getCatalogItems();
-  const rawComingSoon = catalogItems.filter((c) => c.status === "coming-soon");
-  // Merge with product data
-  const displayItems = rawComingSoon.length > 0
-    ? rawComingSoon.map((c) => {
-        const product = allProducts.find((p) => p.id === c.id);
-        return product ?? c;
-      })
-    : comingSoonItems;
-
-  if (displayItems.length === 0) return null;
+  }, [refreshKey]);
 
   const handleNotify = useCallback((id: string) => {
     setNotifyIds((prev) => {
@@ -103,7 +90,7 @@ export function ComingSoonSection() {
     // Add to cart as pre-order (price 0 or placeholder)
     if (typeof window !== "undefined") {
       import("~/data/cart").then(({ addToCart }) => {
-        const product = allProducts.find((p) => p.id === id);
+        const product = displayItems.find((p) => p.id === id);
         if (product) {
           addToCart({
             productId: product.id,
@@ -118,7 +105,11 @@ export function ComingSoonSection() {
         }
       });
     }
-  }, [allProducts]);
+  }, [displayItems]);
+
+  if (!hydrated) return null;
+
+  if (displayItems.length === 0) return null;
 
   return (
     <section className="px-4 py-16 sm:px-6 sm:py-20 lg:px-8" style={{ backgroundColor: "var(--color-bg)" }}>

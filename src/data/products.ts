@@ -1,4 +1,5 @@
-import { getCatalogItems, type CatalogItem } from "./catalog";
+import { getCatalogItems } from "~/db/queries";
+import type { CatalogItem } from "./catalog";
 import { calculateDiscountedPrice, DEFAULT_PROMO_SETTINGS, type PromoSettings } from "./promotions";
 
 export interface Product {
@@ -78,9 +79,9 @@ export const products: Product[] = [
   },
 ];
 
-export function getAllProducts(settings: PromoSettings = DEFAULT_PROMO_SETTINGS): Product[] {
+export async function getAllProducts(settings: PromoSettings = DEFAULT_PROMO_SETTINGS): Promise<Product[]> {
   const staticProducts = products;
-  const catalogItems = getCatalogItems();
+  const catalogItems = await getCatalogItems();
   const mapped: Product[] = catalogItems.map((item: CatalogItem) => {
     const { discounted, hasDiscount } = calculateDiscountedPrice(item.price, item.promoOverride, settings, item.type);
     return {

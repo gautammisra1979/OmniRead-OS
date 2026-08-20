@@ -94,9 +94,8 @@ function ProductCard({
   const isComingSoon = product.status === "coming-soon";
 
   const handleAddToCart = useCallback((id: string) => {
-    const p = getAllProducts().find((x) => x.id === id);
-    if (p) onBuy(p.title);
-  }, [onBuy]);
+    onBuy(product.title);
+  }, [onBuy, product.title]);
 
   const handleViewDetails = useCallback((id: string) => {
     onViewDetails?.(id);
@@ -244,6 +243,7 @@ export function ProductGrid() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [promoSettings, setPromoSettings] = useState<PromoSettings>(DEFAULT_PROMO_SETTINGS);
   const [recoveryPromo, setRecoveryPromo] = useState<{ code: string; discount: number } | null>(null);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
   const { t } = useLanguage();
 
   // Re-render when storage changes (admin adds products in another tab)
@@ -266,13 +266,16 @@ export function ProductGrid() {
       if (cancelled) return;
       setPromoSettings(settings);
       setRecoveryPromo(recovery);
+      getAllProducts(settings).then((all) => {
+        if (cancelled) return;
+        setAllProducts(all.map((p) => applyRecoveryDiscount(p, recovery)));
+      });
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshKey]);
 
-  const allProducts = getAllProducts(promoSettings).map((p) => applyRecoveryDiscount(p, recoveryPromo));
   // Filter out "coming-soon" items from the main grid (they go in ComingSoonSection)
   const liveProducts = allProducts.filter((p) => p.status !== "coming-soon");
   // Limit to max 10 items

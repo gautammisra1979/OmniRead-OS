@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createFileRoute, useParams, Link } from "@tanstack/react-router";
 import { useLanguage } from "~/components/LanguageProvider";
 import { ReaderHUD } from "~/components/ReaderHUD";
 import { getAllProducts } from "~/data/products";
+import type { Product } from "~/data/products";
 
 export const Route = createFileRoute("/reader/$productId")({
   component: ReaderRoute,
@@ -11,10 +12,18 @@ export const Route = createFileRoute("/reader/$productId")({
 function ReaderRoute() {
   const { productId } = useParams({ from: "/reader/$productId" });
   const { t } = useLanguage();
-  const [product] = useState(() => {
-    const all = getAllProducts();
-    return all.find((p) => p.id === productId) ?? null;
-  });
+  const [product, setProduct] = useState<Product | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAllProducts().then((all) => {
+      if (cancelled) return;
+      setProduct(all.find((p) => p.id === productId) ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [productId]);
 
   const handleClose = () => {
     if (typeof window !== "undefined") {
