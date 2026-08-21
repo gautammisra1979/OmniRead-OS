@@ -3,6 +3,9 @@ import { useLanguage } from "~/components/LanguageProvider";
 import { getAllProducts, applyRecoveryDiscount, type Product } from "~/data/products";
 import { getPromoSettings, DEFAULT_PROMO_SETTINGS, type PromoSettings } from "~/data/promotions";
 import { getRecoveryPromoCode } from "~/data/cart";
+import { getCatalogSignature } from "~/db/queries";
+
+type CatalogSignature = { count: number; maxUpdatedAt: string | null };
 
 function StarRating({ rating }: { rating: number }) {
   return (
@@ -39,36 +42,70 @@ export function ComingSoonSection() {
     setHydrated(true);
   }, []);
 
-  // Re-render when storage changes
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handleStorage = () => setRefreshKey((k) => k + 1);
-    window.addEventListener("storage", handleStorage);
-    const interval = setInterval(() => setRefreshKey((k) => k + 1), 2000);
-    return () => {
-      window.removeEventListener("storage", handleStorage);
-      clearInterval(interval);
-    };
-  }, []);
-
   // DB-backed promo settings + this visitor's personal recovery discount
-  // (Step 26 Phase 4) — were synchronous localStorage reads.
+  // (Step 26 Phase 4). Fetched once on mount — they don't need 2-second
+  // reactivity, so they're split out of the poll below.
   useEffect(() => {
     let cancelled = false;
     Promise.all([getPromoSettings(), getRecoveryPromoCode()]).then(([settings, recovery]) => {
       if (cancelled) return;
       setPromoSettings(settings);
       setRecoveryPromo(recovery);
-      getAllProducts(settings).then((all) => {
-        if (cancelled) return;
-        const withRecovery = all.map((p) => applyRecoveryDiscount(p, recovery));
-        setDisplayItems(withRecovery.filter((p) => p.status === "coming-soon"));
-      });
     });
     return () => {
       cancelled = true;
     };
-  }, [refreshKey]);
+  }, []);
+
+  // Re-render when storage changes, and poll a cheap change-signal every 2
+  // seconds for same-tab updates — only bump refreshKey when the signature
+  // actually differs, so an unchanged catalog doesn't trigger the full
+  // getAllProducts() chain below.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+    let lastSignature: CatalogSignature | null = null;
+
+    const checkSignature = async () => {
+      try {
+        const signature = await getCatalogSignature();
+        if (cancelled) return;
+        if (
+          !lastSignature ||
+          signature.count !== lastSignature.count ||
+          signature.maxUpdatedAt !== lastSignature.maxUpdatedAt
+        ) {
+          lastSignature = signature;
+          setRefreshKey((k) => k + 1);
+        }
+      } catch {
+        // Transient poll failure — try again next tick.
+      }
+    };
+
+    const handleStorage = () => setRefreshKey((k) => k + 1);
+    window.addEventListener("storage", handleStorage);
+    const interval = setInterval(checkSignature, 2000);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("storage", handleStorage);
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Refetch the catalog once promo settings/recovery are loaded, and again
+  // whenever the change-signal (refreshKey) says the catalog moved.
+  useEffect(() => {
+    let cancelled = false;
+    getAllProducts(promoSettings).then((all) => {
+      if (cancelled) return;
+      const withRecovery = all.map((p) => applyRecoveryDiscount(p, recoveryPromo));
+      setDisplayItems(withRecovery.filter((p) => p.status === "coming-soon"));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey, promoSettings, recoveryPromo]);
 
   const handleNotify = useCallback((id: string) => {
     setNotifyIds((prev) => {

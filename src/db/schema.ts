@@ -49,6 +49,14 @@ export const catalogItems = pgTable("catalog_items", {
     .notNull()
     .defaultNow(),
 
+  // Cheap change-signal for polling clients (ProductGrid/ComingSoonSection):
+  // bumped on every write so pollers can detect "nothing changed" without a
+  // full getAllProducts() round-trip. See getCatalogSignature() in queries.ts.
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+
   // Lifecycle status; defaults to "live" if not set, matching current logic.
   status: text("status").default("live"), // "live" | "coming-soon" | "retired"
 

@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { eq, ne } from "drizzle-orm";
+import { count, eq, max, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { catalogItems, type CatalogItemRow } from "~/db/schema";
@@ -108,6 +108,27 @@ export const getLiveCatalogItems = createServerFn({ method: "GET" }).handler(
 
 export const getActiveCatalogItems = getLiveCatalogItems;
 
+/**
+ * Cheap change-signal for pollers (ProductGrid/ComingSoonSection): a single
+ * aggregate query (row count + max updatedAt) instead of a full catalog
+ * fetch, so a 2-second poll can detect "nothing changed" without paying for
+ * getAllProducts()'s full read/join/discount-calc chain on every tick.
+ */
+export const getCatalogSignature = createServerFn({ method: "GET" }).handler(
+  async (): Promise<{ count: number; maxUpdatedAt: string | null }> => {
+    const [row] = await db()
+      .select({
+        count: count(),
+        maxUpdatedAt: max(catalogItems.updatedAt),
+      })
+      .from(catalogItems);
+    return {
+      count: row?.count ?? 0,
+      maxUpdatedAt: row?.maxUpdatedAt ? new Date(row.maxUpdatedAt).toISOString() : null,
+    };
+  },
+);
+
 export const getComingSoonCatalogItems = createServerFn({
   method: "GET",
 }).handler(async (): Promise<CatalogItem[]> => {
@@ -143,6 +164,7 @@ export const createCatalogItem = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }): Promise<CatalogItem> => {
     await requireAdmin();
+    const now = new Date();
     const [row] = await db()
       .insert(catalogItems)
       .values({
@@ -156,6 +178,8 @@ export const createCatalogItem = createServerFn({ method: "POST" })
         coverUrl: data.coverUrl ?? null,
         mediaName: data.mediaName ?? null,
         mediaUrl: data.mediaUrl ?? null,
+        createdAt: now,
+        updatedAt: now,
         status: data.status ?? "live",
         rating: data.rating,
         reviewCount: data.reviewCount,

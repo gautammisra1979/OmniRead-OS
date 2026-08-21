@@ -99,6 +99,13 @@
       "when": 1786058380723,
       "tag": "0013_anonymous_users",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1787291082557,
+      "tag": "0014_add_catalog_items_updated_at",
+      "breakpoints": true
     }
   ]
 }
