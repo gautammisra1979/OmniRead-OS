@@ -9,6 +9,8 @@ import {
   loyaltyLedger,
   downloads,
   refundClaims,
+  affiliateReferrals,
+  affiliateProfiles,
 } from "~/db/schema";
 
 /**
@@ -58,17 +60,31 @@ export async function mergeAnonymousUserData(
     // read-then-decide step isn't itself covered by the same atomicity
     // guarantee as the writes. Acceptable here: a given anonymous session
     // only ever goes through account-linking once.
-    const [anonCartStateRows, realCartStateRows, anonWalletRows, realWalletRows, anonLoyaltyRows, realLoyaltyRows] =
-      await Promise.all([
+    const [
+      anonCartStateRows,
+      realCartStateRows,
+      anonWalletRows,
+      realWalletRows,
+      anonLoyaltyRows,
+      realLoyaltyRows,
+      anonReferralRows,
+      realReferralRows,
+      anonAffiliateProfileRows,
+      realAffiliateProfileRows,
+    ] = await Promise.all([
         database.select().from(cartState).where(eq(cartState.userId, anonUserId)),
         database.select().from(cartState).where(eq(cartState.userId, realUserId)),
         database.select().from(wallet).where(eq(wallet.userId, anonUserId)),
         database.select().from(wallet).where(eq(wallet.userId, realUserId)),
         database.select().from(loyaltyConfig).where(eq(loyaltyConfig.userId, anonUserId)),
         database.select().from(loyaltyConfig).where(eq(loyaltyConfig.userId, realUserId)),
+        database.select().from(affiliateReferrals).where(eq(affiliateReferrals.userId, anonUserId)),
+        database.select().from(affiliateReferrals).where(eq(affiliateReferrals.userId, realUserId)),
+        database.select().from(affiliateProfiles).where(eq(affiliateProfiles.userId, anonUserId)),
+        database.select().from(affiliateProfiles).where(eq(affiliateProfiles.userId, realUserId)),
       ]);
 
-    const conditionalOps: ReturnType<typeof database.update>[] = [];
+    const conditionalOps: (ReturnType<typeof database.update> | ReturnType<typeof database.delete>)[] = [];
 
     // cartState: userId is the primary key, one row per user. If the real
     // user already has a row, keep it as-is and let the anonymous row
@@ -121,6 +137,53 @@ export async function mergeAnonymousUserData(
             .where(and(eq(loyaltyConfig.userId, anonUserId), eq(loyaltyConfig.status, row.status))),
         );
       }
+    }
+
+    // affiliateReferrals: userId is the primary key, one row per visitor.
+    // Last-click-wins is this table's own semantics (see
+    // affiliateProgram.ts's captureReferral), so a merge conflict is
+    // resolved the same way: whichever row has the later referredAt wins.
+    // If the real user has no row yet, this is a plain reassign. If the
+    // anonymous row is newer, delete the real user's stale row and reassign
+    // the anonymous row; if the real row is newer or equal, leave both
+    // alone and let the anonymous row cascade away untouched.
+    const anonReferralRow = anonReferralRows[0];
+    const realReferralRow = realReferralRows[0];
+    if (anonReferralRow && !realReferralRow) {
+      conditionalOps.push(
+        database
+          .update(affiliateReferrals)
+          .set({ userId: realUserId })
+          .where(eq(affiliateReferrals.userId, anonUserId)),
+      );
+    } else if (
+      anonReferralRow &&
+      realReferralRow &&
+      anonReferralRow.referredAt.getTime() > realReferralRow.referredAt.getTime()
+    ) {
+      conditionalOps.push(
+        database.delete(affiliateReferrals).where(eq(affiliateReferrals.userId, realUserId)),
+      );
+      conditionalOps.push(
+        database
+          .update(affiliateReferrals)
+          .set({ userId: realUserId })
+          .where(eq(affiliateReferrals.userId, anonUserId)),
+      );
+    }
+
+    // affiliateProfiles: userId is unique, at most one affiliate profile per
+    // user. If only the anonymous session registered as an affiliate,
+    // reassign it. If both already have their own profile, leave both alone
+    // (the anonymous one cascades away) — a rare edge case, not worth
+    // conflict-merging.
+    if (anonAffiliateProfileRows.length > 0 && realAffiliateProfileRows.length === 0) {
+      conditionalOps.push(
+        database
+          .update(affiliateProfiles)
+          .set({ userId: realUserId })
+          .where(eq(affiliateProfiles.userId, anonUserId)),
+      );
     }
 
     const ops = [

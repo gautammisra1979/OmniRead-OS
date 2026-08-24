@@ -7,6 +7,7 @@
 
 import { getCart, clearCart, type CartItem } from "~/data/cart";
 import { getDownloads, addDownload, markDownloadsRefunded } from "~/data/downloads";
+import { creditAffiliateForPurchase, voidAffiliateLedgerForDownload } from "~/data/affiliateProgram";
 
 export interface StripeTransaction {
   sessionId: string;
@@ -87,7 +88,7 @@ export async function completeCheckout(sessionId: string): Promise<number> {
     );
     if (exists) continue;
 
-    await addDownload({
+    const newDownload = await addDownload({
       productId: item.productId,
       productTitle: item.title,
       productAuthor: item.author,
@@ -97,6 +98,18 @@ export async function completeCheckout(sessionId: string): Promise<number> {
       sessionId,
     });
     added++;
+
+    // A broken affiliate credit must never block a real purchase from
+    // completing for the buyer.
+    try {
+      await creditAffiliateForPurchase({
+        downloadId: newDownload.id,
+        productTitle: item.title,
+        purchaseValue: item.price,
+      });
+    } catch (error) {
+      console.error(`[completeCheckout] Affiliate credit failed for download ${newDownload.id}:`, error);
+    }
   }
 
   // Clear the cart
@@ -119,8 +132,12 @@ export async function markTransactionRefunded(sessionId: string): Promise<void> 
     saveTransactions(txs);
   }
 
-  // Also mark download ledger entries as refunded
+  // Also mark download ledger entries as refunded, and void any affiliate
+  // ledger rows tied to those same downloads.
   if (tx) {
-    await markDownloadsRefunded(tx.sessionId);
+    const refundedDownloadIds = await markDownloadsRefunded(tx.sessionId);
+    for (const downloadId of refundedDownloadIds) {
+      await voidAffiliateLedgerForDownload(downloadId);
+    }
   }
 }

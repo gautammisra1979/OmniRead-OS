@@ -161,13 +161,19 @@ const dbIncrementDownloadCount = createServerFn({ method: "POST" })
 
 const dbMarkDownloadsRefunded = createServerFn({ method: "POST" })
   .validator((sessionId: string) => sessionId)
-  .handler(async ({ data: sessionId }): Promise<void> => {
+  .handler(async ({ data: sessionId }): Promise<string[]> => {
     await requireAdmin();
-    const userId = await getUserId();
-    await db()
+    // Scoped by sessionId alone — a real, effectively-unique key generated
+    // per checkout session in stripeCheckout.ts. The old `and(eq(userId,
+    // ...))` condition compared against the *admin's own* userId (from
+    // getUserId()), not the download's actual owner, so it silently no-oped
+    // for any real buyer's refund. Fixed here, not just refactored.
+    const rows = await db()
       .update(downloads)
       .set({ status: "refunded" })
-      .where(and(eq(downloads.userId, userId), eq(downloads.sessionId, sessionId)));
+      .where(eq(downloads.sessionId, sessionId))
+      .returning();
+    return rows.map((row) => row.id);
   });
 
 /* ─── Public API ─── */
@@ -195,6 +201,8 @@ export async function incrementDownloadCount(id: string): Promise<void> {
   return dbIncrementDownloadCount({ data: id });
 }
 
-export async function markDownloadsRefunded(sessionId: string): Promise<void> {
+/** Returns the ids of the download rows that were flipped to "refunded", so
+ *  callers (stripeCheckout.ts) can void the matching affiliate ledger rows. */
+export async function markDownloadsRefunded(sessionId: string): Promise<string[]> {
   return dbMarkDownloadsRefunded({ data: sessionId });
 }

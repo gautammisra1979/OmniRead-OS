@@ -323,3 +323,88 @@ export const adminAuth = pgTable("admin_auth", {
 
 export type AdminAuthRow = typeof adminAuth.$inferSelect;
 export type NewAdminAuthRow = typeof adminAuth.$inferInsert;
+
+/**
+ * Tier A (real affiliate backend): six new tables replacing the pieces of
+ * src/data/affiliate.ts's localStorage model that have no server-side
+ * equivalent yet. src/data/affiliate.ts and its UI consumers are untouched —
+ * this is net-new, additive infrastructure for a future Tier B rewire.
+ */
+
+export const affiliateProfiles = pgTable("affiliate_profiles", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull().unique().references(() => user.id, { onDelete: "cascade" }),
+  handle: text("handle").notNull().unique(),
+  brandName: text("brand_name").notNull(),
+  paymentMethod: text("payment_method").notNull().default("paypal"), // paypal | venmo | crypto
+  paymentDetail: text("payment_detail").notNull().default(""),
+  payoutPreference: text("payout_preference").notNull().default("cash"), // cash | loyalty_credit — affiliate's own standing choice, changeable any time; only executed once a given ledger row clears its hold period
+  registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type AffiliateProfileRow = typeof affiliateProfiles.$inferSelect;
+export type NewAffiliateProfileRow = typeof affiliateProfiles.$inferInsert;
+
+// One active referral per visitor, last-click-wins. Replaces the old
+// localStorage ActiveReferrer — keyed by the visitor's real Better Auth
+// user_id (anonymous or logged in) rather than a browser-local value, so it
+// survives the visitor converting to a real account (see mergeAnonymousUser.ts change below).
+export const affiliateReferrals = pgTable("affiliate_referrals", {
+  userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  affiliateId: uuid("affiliate_id").notNull().references(() => affiliateProfiles.id, { onDelete: "cascade" }),
+  referredAt: timestamp("referred_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+export type AffiliateReferralRow = typeof affiliateReferrals.$inferSelect;
+export type NewAffiliateReferralRow = typeof affiliateReferrals.$inferInsert;
+
+export const affiliateClickEvents = pgTable("affiliate_click_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  affiliateId: uuid("affiliate_id").notNull().references(() => affiliateProfiles.id, { onDelete: "cascade" }),
+  visitorUserId: text("visitor_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  sourcePage: text("source_page").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type AffiliateClickEventRow = typeof affiliateClickEvents.$inferSelect;
+export type NewAffiliateClickEventRow = typeof affiliateClickEvents.$inferInsert;
+
+// status: pending | paid | converted | voided. There is deliberately no
+// stored "approved" state — whether a pending row is past its hold period
+// is computed at read/resolve time (see affiliateProgram.ts), not stored,
+// since this app has no scheduled-job infrastructure to flip it on a timer.
+export const affiliateLedger = pgTable("affiliate_ledger", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  affiliateId: uuid("affiliate_id").notNull().references(() => affiliateProfiles.id, { onDelete: "cascade" }),
+  downloadId: uuid("download_id").notNull().references(() => downloads.id, { onDelete: "cascade" }),
+  buyerUserId: text("buyer_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  productTitle: text("product_title").notNull(),
+  purchaseValue: numeric("purchase_value", { precision: 10, scale: 2 }).notNull(),
+  commissionSlice: numeric("commission_slice", { precision: 10, scale: 2 }).notNull(),
+  status: text("status").notNull().default("pending"),
+  payoutId: uuid("payout_id").references(() => affiliatePayouts.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+});
+export type AffiliateLedgerRow = typeof affiliateLedger.$inferSelect;
+export type NewAffiliateLedgerRow = typeof affiliateLedger.$inferInsert;
+
+// One row per settlement batch — replaces the old blunt "mark all approved
+// as paid" flip with a real, storeowner-reviewable payout record.
+export const affiliatePayouts = pgTable("affiliate_payouts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  affiliateId: uuid("affiliate_id").notNull().references(() => affiliateProfiles.id, { onDelete: "cascade" }),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  referenceNote: text("reference_note"),
+  settledAt: timestamp("settled_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type AffiliatePayoutRow = typeof affiliatePayouts.$inferSelect;
+export type NewAffiliatePayoutRow = typeof affiliatePayouts.$inferInsert;
+
+// Single global settings row — same pattern as promoSettings/licenseSettings.
+export const affiliateSettings = pgTable("affiliate_settings", {
+  id: text("id").primaryKey(), // fixed "global" row
+  commissionRate: doublePrecision("commission_rate").notNull().default(0.1),
+  attributionWindowDays: integer("attribution_window_days").notNull().default(30),
+  holdPeriodDays: integer("hold_period_days").notNull().default(30),
+});
+export type AffiliateSettingsRow = typeof affiliateSettings.$inferSelect;
+export type NewAffiliateSettingsRow = typeof affiliateSettings.$inferInsert;

@@ -5,6 +5,7 @@ import { LanguageProvider } from "~/components/LanguageProvider";
 import { ThemeProvider } from "~/components/ThemeProvider";
 import { BrandingProvider } from "~/components/BrandingProvider";
 import { AnonymousAuthBoot } from "~/components/AnonymousAuthBoot";
+import { AffiliateReferralBoot } from "~/components/AffiliateReferralBoot";
 
 export const Route = createRootRoute({
   component: RootComponent,
@@ -29,6 +30,7 @@ function RootComponent() {
           <LanguageProvider>
             <BrandingProvider>
               <AnonymousAuthBoot />
+              <AffiliateReferralBoot />
               {hydrated ? <Outlet /> : <div className="py-20 text-center font-bold font-serif">Loading Showcase Engine...</div>}
             </BrandingProvider>
           </LanguageProvider>
