@@ -1,79 +1,106 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import {
-  getAffiliateProfile,
-  getAffiliateLedger,
-  getClicks,
-  getTotalClicks,
-  getConversionRate,
-  getUnpaidEarnings,
-  getTotalPaidOut,
-  getTotalEarnings,
-  saveAffiliateProfile,
-  type AffiliateProfile,
-  type AffiliateLedgerEntry,
-} from "~/data/affiliate";
+  getMyAffiliateProfile,
+  getMyAffiliateLedger,
+  getMyClickCount,
+  updateAffiliateProfile,
+  type AffiliateProfileRow,
+  type AffiliateLedgerRow,
+  type LedgerDisplayStatus,
+} from "~/data/affiliateProgram";
+
+type LedgerRow = AffiliateLedgerRow & { displayStatus: LedgerDisplayStatus };
+
+const STATUS_FILTERS = ["all", "in_hold", "payable", "paid", "converted", "voided"] as const;
+type StatusFilter = (typeof STATUS_FILTERS)[number];
+
+const STATUS_LABELS: Record<LedgerDisplayStatus, string> = {
+  in_hold: "In Hold",
+  payable: "Payable",
+  paid: "Paid",
+  converted: "Converted",
+  voided: "Voided",
+};
+
+const STATUS_COLORS: Record<LedgerDisplayStatus, string> = {
+  in_hold: "var(--color-text-muted,#94a3b8)",
+  payable: "#fbbf24",
+  paid: "#34d399",
+  converted: "#818cf8",
+  voided: "#f87171",
+};
+
+function sumByStatus(ledger: LedgerRow[], status: LedgerDisplayStatus): number {
+  return ledger
+    .filter((e) => e.displayStatus === status)
+    .reduce((sum, e) => sum + Number(e.commissionSlice), 0);
+}
 
 export function AffiliateDashboard() {
   const { t } = useLanguage();
-  const [profile, setProfile] = useState<AffiliateProfile | null>(getAffiliateProfile());
-  const [ledger, setLedger] = useState<AffiliateLedgerEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<AffiliateProfileRow | null>(null);
+  const [ledger, setLedger] = useState<LedgerRow[]>([]);
   const [clicks, setClicks] = useState(0);
-  const [conversion, setConversion] = useState(0);
-  const [unpaid, setUnpaid] = useState(0);
-  const [paidOut, setPaidOut] = useState(0);
-  const [totalEarned, setTotalEarned] = useState(0);
-  const [paymentMethod, setPaymentMethod] = useState<"paypal" | "venmo" | "crypto">(profile?.paymentMethod ?? "paypal");
-  const [paymentDetail, setPaymentDetail] = useState(profile?.paymentDetail ?? "");
+  const [paymentMethod, setPaymentMethod] = useState<"paypal" | "venmo" | "crypto">("paypal");
+  const [paymentDetail, setPaymentDetail] = useState("");
+  const [payoutPreference, setPayoutPreference] = useState<"cash" | "loyalty_credit">("cash");
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved" | "paid">("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
-  const refresh = useCallback(() => {
-    const p = getAffiliateProfile();
+  const refresh = useCallback(async () => {
+    const [p, l, c] = await Promise.all([getMyAffiliateProfile(), getMyAffiliateLedger(), getMyClickCount()]);
     setProfile(p);
-    setLedger(getAffiliateLedger());
+    setLedger(l);
+    setClicks(c);
     if (p) {
-      setClicks(getTotalClicks(p.handle));
-      setConversion(getConversionRate(p.handle));
-      setUnpaid(getUnpaidEarnings(p.handle));
-      setPaidOut(getTotalPaidOut(p.handle));
-      setTotalEarned(getTotalEarnings(p.handle));
+      setPaymentMethod(p.paymentMethod as "paypal" | "venmo" | "crypto");
+      setPaymentDetail(p.paymentDetail);
+      setPayoutPreference(p.payoutPreference as "cash" | "loyalty_credit");
     }
   }, []);
 
   useEffect(() => {
-    refresh();
-    window.addEventListener("storage", refresh);
-    return () => window.removeEventListener("storage", refresh);
+    refresh().finally(() => setLoading(false));
   }, [refresh]);
 
-  const handleSavePayment = useCallback(() => {
-    if (!profile) return;
-    saveAffiliateProfile({ ...profile, paymentMethod, paymentDetail });
+  const handleSavePayment = useCallback(async () => {
+    setSaving(true);
+    await updateAffiliateProfile({ paymentMethod, paymentDetail, payoutPreference });
+    setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
-    refresh();
-  }, [profile, paymentMethod, paymentDetail, refresh]);
+    await refresh();
+  }, [paymentMethod, paymentDetail, payoutPreference, refresh]);
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-4xl py-10 text-center">
+        <p className="text-sm" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Loading…</p>
+      </div>
+    );
+  }
 
   if (!profile) return null;
 
-  const filteredLedger = statusFilter === "all"
-    ? ledger
-    : ledger.filter((e) => e.status === statusFilter);
+  const filteredLedger = statusFilter === "all" ? ledger : ledger.filter((e) => e.displayStatus === statusFilter);
 
-  const statusBadge = (status: string) => {
-    const colors: Record<string, string> = {
-      pending: "var(--color-text-muted,#94a3b8)",
-      approved: "#fbbf24",
-      paid: "#34d399",
-    };
-    return (
-      <span className="rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ backgroundColor: "color-mix(in srgb, " + (colors[status] ?? "#94a3b8") + " 20%, transparent)", color: colors[status] ?? "#94a3b8" }}>
-        {status === "pending" ? t("affiliate.statusPending") : status === "approved" ? t("affiliate.statusApproved") : t("affiliate.statusPaid")}
-      </span>
-    );
-  };
+  const payable = sumByStatus(ledger, "payable");
+  const inHold = sumByStatus(ledger, "in_hold");
+  const paidOut = sumByStatus(ledger, "paid");
+  const converted = sumByStatus(ledger, "converted");
+
+  const statusBadge = (status: LedgerDisplayStatus) => (
+    <span
+      className="rounded px-1.5 py-0.5 text-[10px] font-medium"
+      style={{ backgroundColor: `color-mix(in srgb, ${STATUS_COLORS[status]} 20%, transparent)`, color: STATUS_COLORS[status] }}
+    >
+      {STATUS_LABELS[status]}
+    </span>
+  );
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -137,20 +164,36 @@ export function AffiliateDashboard() {
                 placeholder="email@example.com"
               />
             </div>
+            <div className="flex-1 min-w-[160px]">
+              <label htmlFor="dash-payout-pref" className="block text-xs mb-1" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+                Payout Preference
+              </label>
+              <select
+                id="dash-payout-pref"
+                value={payoutPreference}
+                onChange={(e) => setPayoutPreference(e.target.value as "cash" | "loyalty_credit")}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+                style={{ backgroundColor: "var(--color-bg,#0f172a)", color: "var(--color-text,#f8fafc)", borderColor: "var(--color-border,#334155)" }}
+              >
+                <option value="cash">Cash</option>
+                <option value="loyalty_credit">Loyalty Credit</option>
+              </select>
+            </div>
             <button
               type="button"
               onClick={handleSavePayment}
-              className="rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110"
+              disabled={saving}
+              className="rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110 disabled:opacity-60"
               style={{ backgroundColor: "var(--color-primary,#6366f1)" }}
             >
-              {saved ? t("affiliate.saved") : t("affiliate.savePayment")}
+              {saved ? t("affiliate.saved") : saving ? "..." : t("affiliate.savePayment")}
             </button>
           </div>
         </div>
       )}
 
       {/* Metric Cards */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-surface,#1e293b)" }}>
           <p className="text-xs uppercase tracking-wider" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
             {t("affiliate.totalClicks")}
@@ -158,21 +201,26 @@ export function AffiliateDashboard() {
           <p className="mt-1 text-2xl font-bold" style={{ color: "var(--color-text,#f8fafc)" }}>
             {clicks}
           </p>
-        </div>
-        <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-surface,#1e293b)" }}>
-          <p className="text-xs uppercase tracking-wider" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
-            {t("affiliate.conversionRate")}
-          </p>
-          <p className="mt-1 text-2xl font-bold" style={{ color: "var(--color-text,#f8fafc)" }}>
-            {conversion}%
+          {/* Referral-capture-only: counts clicks through this affiliate's
+              own storefront link, not full site-wide click instrumentation. */}
+          <p className="mt-1 text-[10px]" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+            via referral link
           </p>
         </div>
         <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-surface,#1e293b)" }}>
           <p className="text-xs uppercase tracking-wider" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
-            {t("affiliate.owed")}
+            Payable
           </p>
           <p className="mt-1 text-2xl font-bold" style={{ color: "#fbbf24" }}>
-            ${unpaid.toFixed(2)}
+            ${payable.toFixed(2)}
+          </p>
+        </div>
+        <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-surface,#1e293b)" }}>
+          <p className="text-xs uppercase tracking-wider" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+            In Hold Period
+          </p>
+          <p className="mt-1 text-2xl font-bold" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+            ${inHold.toFixed(2)}
           </p>
         </div>
         <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-surface,#1e293b)" }}>
@@ -183,16 +231,24 @@ export function AffiliateDashboard() {
             ${paidOut.toFixed(2)}
           </p>
         </div>
+        <div className="rounded-xl border p-4" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-surface,#1e293b)" }}>
+          <p className="text-xs uppercase tracking-wider" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+            Converted to Loyalty
+          </p>
+          <p className="mt-1 text-2xl font-bold" style={{ color: "#818cf8" }}>
+            ${converted.toFixed(2)}
+          </p>
+        </div>
       </div>
 
       {/* Sales History Ledger */}
       <div className="rounded-xl border p-5" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-surface,#1e293b)" }}>
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
           <h3 className="text-sm font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>
             {t("affiliate.ledger")} ({ledger.length})
           </h3>
-          <div className="flex gap-1">
-            {(["all", "pending", "approved", "paid"] as const).map((f) => (
+          <div className="flex flex-wrap gap-1">
+            {STATUS_FILTERS.map((f) => (
               <button
                 key={f}
                 type="button"
@@ -203,7 +259,7 @@ export function AffiliateDashboard() {
                   backgroundColor: statusFilter === f ? "color-mix(in srgb, var(--color-primary,#6366f1) 15%, transparent)" : "transparent",
                 }}
               >
-                {f === "all" ? "All" : f === "pending" ? t("affiliate.statusPending") : f === "approved" ? t("affiliate.statusApproved") : t("affiliate.statusPaid")}
+                {f === "all" ? "All" : STATUS_LABELS[f]}
               </button>
             ))}
           </div>
@@ -233,12 +289,12 @@ export function AffiliateDashboard() {
                   {filteredLedger.map((entry) => (
                     <tr key={entry.id} className="border-b" style={{ borderColor: "var(--color-border,#334155)" }}>
                       <td className="px-3 py-2 whitespace-nowrap" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
-                        {new Date(entry.timestamp).toLocaleDateString()}
+                        {new Date(entry.createdAt).toLocaleDateString()}
                       </td>
-                      <td className="px-3 py-2" style={{ color: "var(--color-text,#f8fafc)" }}>{entry.bookTitle}</td>
-                      <td className="px-3 py-2 text-right" style={{ color: "var(--color-text,#f8fafc)" }}>${entry.purchaseValue.toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right font-medium" style={{ color: "#34d399" }}>${entry.commissionSlice.toFixed(2)}</td>
-                      <td className="px-3 py-2">{statusBadge(entry.status)}</td>
+                      <td className="px-3 py-2" style={{ color: "var(--color-text,#f8fafc)" }}>{entry.productTitle}</td>
+                      <td className="px-3 py-2 text-right" style={{ color: "var(--color-text,#f8fafc)" }}>${Number(entry.purchaseValue).toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right font-medium" style={{ color: "#34d399" }}>${Number(entry.commissionSlice).toFixed(2)}</td>
+                      <td className="px-3 py-2">{statusBadge(entry.displayStatus)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -251,17 +307,17 @@ export function AffiliateDashboard() {
                 <div key={entry.id} className="rounded-lg border p-3" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-bg,#0f172a)" }}>
                   <div className="flex items-center justify-between">
                     <span className="text-[10px]" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
-                      {new Date(entry.timestamp).toLocaleDateString()}
+                      {new Date(entry.createdAt).toLocaleDateString()}
                     </span>
-                    {statusBadge(entry.status)}
+                    {statusBadge(entry.displayStatus)}
                   </div>
-                  <p className="mt-1 text-xs font-medium" style={{ color: "var(--color-text,#f8fafc)" }}>{entry.bookTitle}</p>
+                  <p className="mt-1 text-xs font-medium" style={{ color: "var(--color-text,#f8fafc)" }}>{entry.productTitle}</p>
                   <div className="mt-1 flex items-center justify-between">
                     <span className="text-[10px]" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
-                      ${entry.purchaseValue.toFixed(2)}
+                      ${Number(entry.purchaseValue).toFixed(2)}
                     </span>
                     <span className="text-xs font-bold" style={{ color: "#34d399" }}>
-                      +${entry.commissionSlice.toFixed(2)}
+                      +${Number(entry.commissionSlice).toFixed(2)}
                     </span>
                   </div>
                 </div>

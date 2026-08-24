@@ -26,14 +26,23 @@ import {
   type LoyaltyTier,
 } from "~/data/loyalty";
 import {
-  getAffiliateProfile,
-  getAffiliateLedger,
-  getUnpaidEarnings,
-  getTotalPaidOut,
-  getTotalEarnings,
-  markLedgerAsPaid,
-  type AffiliateLedgerEntry,
-} from "~/data/affiliate";
+  getAllAffiliateProfiles,
+  getAffiliateLedgerForAdmin,
+  getPayoutHistory,
+  getPayableSummary,
+  settleAffiliatePayout,
+  type AffiliateProfileRow,
+  type AffiliateLedgerRow,
+  type AffiliatePayoutRow,
+  type LedgerDisplayStatus,
+  type PayableSummaryRow,
+} from "~/data/affiliateProgram";
+import {
+  getAffiliateSettings,
+  saveAffiliateSettings,
+  DEFAULT_AFFILIATE_SETTINGS,
+  type AffiliateSettings,
+} from "~/data/affiliateSettings";
 import {
   getPromoSettings,
   savePromoSettings,
@@ -929,47 +938,125 @@ function LoyaltyConfigSection() {
 
 /* ─── Affiliate Payroll & Management ─── */
 
+type AffLedgerRow = AffiliateLedgerRow & { displayStatus: LedgerDisplayStatus };
+
+const AFF_STATUS_FILTERS = ["all", "in_hold", "payable", "paid", "converted", "voided"] as const;
+type AffStatusFilter = (typeof AFF_STATUS_FILTERS)[number];
+
+const AFF_STATUS_LABELS: Record<LedgerDisplayStatus, string> = {
+  in_hold: "In Hold",
+  payable: "Payable",
+  paid: "Paid",
+  converted: "Converted",
+  voided: "Voided",
+};
+
+const AFF_STATUS_COLORS: Record<LedgerDisplayStatus, string> = {
+  in_hold: "var(--color-text-muted,#94a3b8)",
+  payable: "#fbbf24",
+  paid: "#34d399",
+  converted: "#818cf8",
+  voided: "#f87171",
+};
+
+function affStatusBadge(status: LedgerDisplayStatus) {
+  return (
+    <span
+      className="rounded px-1.5 py-0.5 text-[10px] font-medium"
+      style={{ backgroundColor: `color-mix(in srgb, ${AFF_STATUS_COLORS[status]} 20%, transparent)`, color: AFF_STATUS_COLORS[status] }}
+    >
+      {AFF_STATUS_LABELS[status]}
+    </span>
+  );
+}
+
 function AffiliateAdminSection() {
   const { t } = useLanguage();
-  const [profile, setProfile] = useState(getAffiliateProfile());
-  const [ledger, setLedger] = useState<AffiliateLedgerEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [profiles, setProfiles] = useState<AffiliateProfileRow[]>([]);
+  const [payableByAffiliate, setPayableByAffiliate] = useState<Map<string, PayableSummaryRow>>(new Map());
+  const [payouts, setPayouts] = useState<AffiliatePayoutRow[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved" | "paid">("all");
   const [settleMsg, setSettleMsg] = useState("");
+  const [settleNotes, setSettleNotes] = useState<Record<string, string>>({});
+  const [settlingId, setSettlingId] = useState<string | null>(null);
+
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedLedger, setExpandedLedger] = useState<AffLedgerRow[]>([]);
+  const [expandedLoading, setExpandedLoading] = useState(false);
+  const [expandedFilter, setExpandedFilter] = useState<AffStatusFilter>("all");
+
+  const [affSettings, setAffSettings] = useState<AffiliateSettings>(DEFAULT_AFFILIATE_SETTINGS);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [savedSettings, setSavedSettings] = useState(false);
+
+  const refresh = useCallback(async () => {
+    const [allProfiles, summary, history, settingsRow] = await Promise.all([
+      getAllAffiliateProfiles(),
+      getPayableSummary(),
+      getPayoutHistory(),
+      getAffiliateSettings(),
+    ]);
+    setProfiles(allProfiles);
+    setPayableByAffiliate(new Map(summary.map((s) => [s.affiliateId, s])));
+    setPayouts(history);
+    setAffSettings(settingsRow);
+  }, []);
 
   useEffect(() => {
-    setProfile(getAffiliateProfile());
-    setLedger(getAffiliateLedger());
-  }, [refreshKey]);
+    refresh().finally(() => setLoading(false));
+  }, [refresh, refreshKey]);
 
-  const handleSettle = useCallback(() => {
-    if (!profile) return;
-    markLedgerAsPaid(profile.handle);
-    setSettleMsg(`Ledger cleared for @${profile.handle}!`);
-    setRefreshKey((k) => k + 1);
-    setTimeout(() => setSettleMsg(""), 3000);
-  }, [profile]);
+  const loadLedgerFor = useCallback(async (affiliateId: string) => {
+    setExpandedLoading(true);
+    const rows = await getAffiliateLedgerForAdmin(affiliateId);
+    setExpandedLedger(rows);
+    setExpandedLoading(false);
+  }, []);
 
-  const filteredLedger = statusFilter === "all"
-    ? ledger
-    : ledger.filter((e) => e.status === statusFilter);
+  const toggleExpand = useCallback(
+    (affiliateId: string) => {
+      if (expandedId === affiliateId) {
+        setExpandedId(null);
+        return;
+      }
+      setExpandedId(affiliateId);
+      setExpandedFilter("all");
+      loadLedgerFor(affiliateId);
+    },
+    [expandedId, loadLedgerFor],
+  );
 
-  const unpaid = profile ? getUnpaidEarnings(profile.handle) : 0;
-  const paidOut = profile ? getTotalPaidOut(profile.handle) : 0;
-  const total = profile ? getTotalEarnings(profile.handle) : 0;
+  const handleSettle = useCallback(
+    async (affiliateId: string) => {
+      setSettlingId(affiliateId);
+      const referenceNote = settleNotes[affiliateId] ?? "";
+      const result = await settleAffiliatePayout(affiliateId, referenceNote);
+      setSettlingId(null);
+      if (result.amount > 0) {
+        const handle = profiles.find((p) => p.id === affiliateId)?.handle ?? affiliateId;
+        setSettleMsg(`Settled $${result.amount.toFixed(2)} for @${handle}`);
+        setSettleNotes((prev) => ({ ...prev, [affiliateId]: "" }));
+        setRefreshKey((k) => k + 1);
+        if (expandedId === affiliateId) loadLedgerFor(affiliateId);
+        setTimeout(() => setSettleMsg(""), 3000);
+      }
+    },
+    [settleNotes, profiles, expandedId, loadLedgerFor],
+  );
 
-  const statusBadge = (status: string) => {
-    const colors: Record<string, string> = {
-      pending: "var(--color-text-muted,#94a3b8)",
-      approved: "#fbbf24",
-      paid: "#34d399",
-    };
-    return (
-      <span className="rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ backgroundColor: "color-mix(in srgb, " + (colors[status] ?? "#94a3b8") + " 20%, transparent)", color: colors[status] ?? "#94a3b8" }}>
-        {status === "pending" ? t("affiliate.statusPending") : status === "approved" ? t("affiliate.statusApproved") : t("affiliate.statusPaid")}
-      </span>
-    );
-  };
+  const handleSaveSettings = useCallback(async () => {
+    setSavingSettings(true);
+    await saveAffiliateSettings(affSettings);
+    setSavingSettings(false);
+    setSavedSettings(true);
+    setTimeout(() => setSavedSettings(false), 2000);
+  }, [affSettings]);
+
+  const filteredExpandedLedger =
+    expandedFilter === "all" ? expandedLedger : expandedLedger.filter((e) => e.displayStatus === expandedFilter);
+
+  const handleByAffiliateId = new Map(profiles.map((p) => [p.id, p.handle]));
 
   return (
     <div className="mx-auto mt-10 max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
@@ -980,105 +1067,235 @@ function AffiliateAdminSection() {
         Manage affiliate profiles, review sales, and process payouts.
       </p>
 
-      {!profile ? (
+      {loading ? (
+        <p className="text-sm" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Loading…</p>
+      ) : profiles.length === 0 ? (
         <div className="rounded-xl border p-6 text-center" style={{ borderColor: "var(--color-border,#334155)" }}>
-          <p className="text-sm" style={{ color: "var(--color-text-muted,#94a3b8)" }}>No affiliate profile registered yet.</p>
+          <p className="text-sm" style={{ color: "var(--color-text-muted,#94a3b8)" }}>No affiliate profiles registered yet.</p>
         </div>
       ) : (
         <>
-          {/* Profile Summary */}
+          {settleMsg && (
+            <div className="mb-4 rounded-lg px-4 py-2 text-sm text-emerald-400" role="status" aria-live="polite">
+              {settleMsg}
+            </div>
+          )}
+
+          {/* Affiliate List */}
           <div className="mb-6 rounded-xl border p-5" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-surface,#1e293b)/30" }}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>
-                  {profile.brandName}
-                </p>
-                <p className="text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
-                  @{profile.handle} — {profile.paymentMethod}: {profile.paymentDetail}
-                </p>
-              </div>
-              <div className="flex gap-4 text-right">
-                <div>
-                  <p className="text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Unpaid</p>
-                  <p className="text-sm font-bold" style={{ color: "#fbbf24" }}>${unpaid.toFixed(2)}</p>
-                </div>
-                <div>
-                  <p className="text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Paid Out</p>
-                  <p className="text-sm font-bold" style={{ color: "#34d399" }}>${paidOut.toFixed(2)}</p>
-                </div>
-                <div>
-                  <p className="text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Total</p>
-                  <p className="text-sm font-bold" style={{ color: "var(--color-text,#f8fafc)" }}>${total.toFixed(2)}</p>
-                </div>
-              </div>
+            <h3 className="mb-3 text-sm font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>
+              Affiliates ({profiles.length})
+            </h3>
+            <div className="space-y-2">
+              {profiles.map((p) => {
+                const summary = payableByAffiliate.get(p.id);
+                const payableAmount = summary?.payableAmount ?? 0;
+                const inHoldAmount = summary?.inHoldAmount ?? 0;
+                const expanded = expandedId === p.id;
+                return (
+                  <div key={p.id} className="rounded-lg border" style={{ borderColor: "var(--color-border,#334155)" }}>
+                    <button
+                      type="button"
+                      onClick={() => toggleExpand(p.id)}
+                      className="flex w-full flex-wrap items-center justify-between gap-3 p-3 text-left"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>
+                          {p.brandName}
+                        </p>
+                        <p className="text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+                          @{p.handle} — {p.paymentMethod}: {p.paymentDetail} — payout: {p.payoutPreference}
+                        </p>
+                      </div>
+                      <div className="flex gap-4 text-right">
+                        <div>
+                          <p className="text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Payable</p>
+                          <p className="text-sm font-bold" style={{ color: "#fbbf24" }}>${payableAmount.toFixed(2)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>In Hold</p>
+                          <p className="text-sm font-bold" style={{ color: "var(--color-text-muted,#94a3b8)" }}>${inHoldAmount.toFixed(2)}</p>
+                        </div>
+                      </div>
+                    </button>
+
+                    {expanded && (
+                      <div className="border-t p-3" style={{ borderColor: "var(--color-border,#334155)" }}>
+                        {/* Settle action */}
+                        {payableAmount > 0 && (
+                          <div className="mb-4 flex flex-wrap items-center gap-2">
+                            <input
+                              type="text"
+                              value={settleNotes[p.id] ?? ""}
+                              onChange={(e) => setSettleNotes((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                              placeholder="Reference note (optional)"
+                              className="min-w-[180px] flex-1 rounded-lg border px-3 py-1.5 text-xs"
+                              style={{ backgroundColor: "var(--color-bg,#0f172a)", color: "var(--color-text,#f8fafc)", borderColor: "var(--color-border,#334155)" }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSettle(p.id)}
+                              disabled={settlingId === p.id}
+                              className="rounded-lg px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:brightness-110 disabled:opacity-60"
+                              style={{ backgroundColor: "#059669" }}
+                            >
+                              {settlingId === p.id ? "..." : `Settle $${payableAmount.toFixed(2)}`}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Status filter */}
+                        <div className="mb-3 flex flex-wrap gap-1">
+                          {AFF_STATUS_FILTERS.map((f) => (
+                            <button
+                              key={f}
+                              type="button"
+                              onClick={() => setExpandedFilter(f)}
+                              className="rounded px-2 py-1 text-[10px] font-medium transition-colors"
+                              style={{
+                                color: expandedFilter === f ? "var(--color-primary,#6366f1)" : "var(--color-text-muted,#94a3b8)",
+                                backgroundColor: expandedFilter === f ? "color-mix(in srgb, var(--color-primary,#6366f1) 15%, transparent)" : "transparent",
+                              }}
+                            >
+                              {f === "all" ? "All" : AFF_STATUS_LABELS[f]}
+                            </button>
+                          ))}
+                        </div>
+
+                        {expandedLoading ? (
+                          <p className="py-4 text-center text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Loading…</p>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left text-xs">
+                              <thead>
+                                <tr className="border-b" style={{ borderColor: "var(--color-border,#334155)" }}>
+                                  <th className="px-3 py-2 font-medium" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Date</th>
+                                  <th className="px-3 py-2 font-medium" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Book</th>
+                                  <th className="px-3 py-2 font-medium text-right" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Value</th>
+                                  <th className="px-3 py-2 font-medium text-right" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Comm.</th>
+                                  <th className="px-3 py-2 font-medium" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {filteredExpandedLedger.map((entry) => (
+                                  <tr key={entry.id} className="border-b" style={{ borderColor: "var(--color-border,#334155)" }}>
+                                    <td className="px-3 py-2 whitespace-nowrap" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+                                      {new Date(entry.createdAt).toLocaleDateString()}
+                                    </td>
+                                    <td className="px-3 py-2" style={{ color: "var(--color-text,#f8fafc)" }}>{entry.productTitle}</td>
+                                    <td className="px-3 py-2 text-right" style={{ color: "var(--color-text,#f8fafc)" }}>${Number(entry.purchaseValue).toFixed(2)}</td>
+                                    <td className="px-3 py-2 text-right" style={{ color: "#34d399" }}>${Number(entry.commissionSlice).toFixed(2)}</td>
+                                    <td className="px-3 py-2">{affStatusBadge(entry.displayStatus)}</td>
+                                  </tr>
+                                ))}
+                                {filteredExpandedLedger.length === 0 && (
+                                  <tr><td colSpan={5} className="px-3 py-6 text-center text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>No entries match filter.</td></tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          {/* Sales Ledger */}
+          {/* Payout History */}
           <div className="mb-6 rounded-xl border p-5" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-surface,#1e293b)/30" }}>
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>
-                {t("affiliate.ledger")} ({ledger.length})
-              </h3>
-              <div className="flex gap-1">
-                {(["all", "pending", "approved", "paid"] as const).map((f) => (
-                  <button key={f} type="button" onClick={() => setStatusFilter(f)}
-                    className="rounded px-2 py-1 text-[10px] font-medium transition-colors"
-                    style={{
-                      color: statusFilter === f ? "var(--color-primary,#6366f1)" : "var(--color-text-muted,#94a3b8)",
-                      backgroundColor: statusFilter === f ? "color-mix(in srgb, var(--color-primary,#6366f1) 15%, transparent)" : "transparent",
-                    }}>
-                    {f === "all" ? "All" : f === "pending" ? t("affiliate.statusPending") : f === "approved" ? t("affiliate.statusApproved") : t("affiliate.statusPaid")}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <h3 className="mb-3 text-sm font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>
+              Payout History ({payouts.length})
+            </h3>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b" style={{ borderColor: "var(--color-border,#334155)" }}>
                     <th className="px-3 py-2 font-medium" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Date</th>
-                    <th className="px-3 py-2 font-medium" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Book</th>
-                    <th className="px-3 py-2 font-medium text-right" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Value</th>
-                    <th className="px-3 py-2 font-medium text-right" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Comm.</th>
-                    <th className="px-3 py-2 font-medium" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Status</th>
+                    <th className="px-3 py-2 font-medium" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Affiliate</th>
+                    <th className="px-3 py-2 font-medium text-right" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Amount</th>
+                    <th className="px-3 py-2 font-medium" style={{ color: "var(--color-text-muted,#94a3b8)" }}>Note</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredLedger.map((entry) => (
-                    <tr key={entry.id} className="border-b" style={{ borderColor: "var(--color-border,#334155)" }}>
+                  {payouts.map((payout) => (
+                    <tr key={payout.id} className="border-b" style={{ borderColor: "var(--color-border,#334155)" }}>
                       <td className="px-3 py-2 whitespace-nowrap" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
-                        {new Date(entry.timestamp).toLocaleDateString()}
+                        {new Date(payout.settledAt).toLocaleDateString()}
                       </td>
-                      <td className="px-3 py-2" style={{ color: "var(--color-text,#f8fafc)" }}>{entry.bookTitle}</td>
-                      <td className="px-3 py-2 text-right" style={{ color: "var(--color-text,#f8fafc)" }}>${entry.purchaseValue.toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right" style={{ color: "#34d399" }}>${entry.commissionSlice.toFixed(2)}</td>
-                      <td className="px-3 py-2">{statusBadge(entry.status)}</td>
+                      <td className="px-3 py-2" style={{ color: "var(--color-text,#f8fafc)" }}>
+                        @{handleByAffiliateId.get(payout.affiliateId) ?? payout.affiliateId}
+                      </td>
+                      <td className="px-3 py-2 text-right font-medium" style={{ color: "#34d399" }}>${Number(payout.amount).toFixed(2)}</td>
+                      <td className="px-3 py-2" style={{ color: "var(--color-text-muted,#94a3b8)" }}>{payout.referenceNote || "—"}</td>
                     </tr>
                   ))}
-                  {filteredLedger.length === 0 && (
-                    <tr><td colSpan={5} className="px-3 py-6 text-center text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>No entries match filter.</td></tr>
+                  {payouts.length === 0 && (
+                    <tr><td colSpan={4} className="px-3 py-6 text-center text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>No payouts settled yet.</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
           </div>
 
-          {/* Settlement Action */}
+          {/* Affiliate Settings */}
           <div className="rounded-xl border p-5" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-surface,#1e293b)/30" }}>
-            <div className="flex flex-wrap items-center gap-3">
-              <button type="button" onClick={handleSettle}
-                className="rounded-lg px-5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110"
-                style={{ backgroundColor: "#059669" }}
-                aria-label={t("affiliate.markSettled")}>
-                {t("affiliate.markSettled")}
+            <h3 className="mb-4 text-sm font-semibold" style={{ color: "var(--color-text,#f8fafc)" }}>Settings</h3>
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="aff-commission-rate" className="block text-xs mb-1" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+                  Commission Rate (decimal, e.g. 0.1 = 10%)
+                </label>
+                <input
+                  id="aff-commission-rate"
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={affSettings.commissionRate}
+                  onChange={(e) => setAffSettings((p) => ({ ...p, commissionRate: parseFloat(e.target.value) || 0 }))}
+                  className="w-32 rounded-lg border px-3 py-2 text-sm"
+                  style={{ backgroundColor: "var(--color-bg,#0f172a)", color: "var(--color-text,#f8fafc)", borderColor: "var(--color-border,#334155)" }}
+                />
+              </div>
+              <div>
+                <label htmlFor="aff-attribution-window" className="block text-xs mb-1" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+                  Attribution Window (days)
+                </label>
+                <input
+                  id="aff-attribution-window"
+                  type="number"
+                  min={1}
+                  value={affSettings.attributionWindowDays}
+                  onChange={(e) => setAffSettings((p) => ({ ...p, attributionWindowDays: parseInt(e.target.value, 10) || 0 }))}
+                  className="w-32 rounded-lg border px-3 py-2 text-sm"
+                  style={{ backgroundColor: "var(--color-bg,#0f172a)", color: "var(--color-text,#f8fafc)", borderColor: "var(--color-border,#334155)" }}
+                />
+              </div>
+              <div>
+                <label htmlFor="aff-hold-period" className="block text-xs mb-1" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+                  Hold Period (days)
+                </label>
+                <input
+                  id="aff-hold-period"
+                  type="number"
+                  min={0}
+                  value={affSettings.holdPeriodDays}
+                  onChange={(e) => setAffSettings((p) => ({ ...p, holdPeriodDays: parseInt(e.target.value, 10) || 0 }))}
+                  className="w-32 rounded-lg border px-3 py-2 text-sm"
+                  style={{ backgroundColor: "var(--color-bg,#0f172a)", color: "var(--color-text,#f8fafc)", borderColor: "var(--color-border,#334155)" }}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveSettings}
+                disabled={savingSettings}
+                className="rounded-lg px-5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110 disabled:opacity-60"
+                style={{ backgroundColor: "var(--color-primary,#6366f1)" }}
+              >
+                {savedSettings ? "Saved!" : savingSettings ? "..." : "Save Settings"}
               </button>
-              {settleMsg && (
-                <span className="text-sm text-emerald-400" role="status" aria-live="polite">{settleMsg}</span>
-              )}
-              <span className="text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
-                Marks all approved entries as paid.
-              </span>
             </div>
           </div>
         </>

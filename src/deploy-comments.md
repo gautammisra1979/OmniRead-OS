@@ -6,5 +6,7 @@ Tracking starts at Session 24 - everything before this point lives in the Sessio
 
 ## Pending (since v1.0.11)
 
-\- Session 28: Affiliate module Tier A — Postgres backend (6 tables: affiliate\_profiles, affiliate\_referrals, affiliate\_click\_events, affiliate\_ledger, affiliate\_payouts, affiliate\_settings), referral capture boot hook, commission-crediting + refund-voiding hooks wired into checkout, dbMarkDownloadsRefunded ownerId-scoping fix
+\- Session 28: Affiliate module Tier A — Postgres backend (6 tables: affiliate\_profiles, affiliate\_referrals, affiliate\_click\_events, affiliate\_ledger, affiliate\_payouts, affiliate\_settings), referral capture boot hook, commission-crediting + refund-voiding hooks wired into checkout, dbMarkDownloadsRefunded ownerId-scoping fix.
+
+\- Session 28: Affiliate module Tier B — real multi-affiliate admin UI (list, drill-in ledger, settlement, payout history), referral capture wired to real backend, computed ledger display-status (in-hold/payable/paid/converted/voided), payout-preference toggle, affiliate settings form; affiliate.ts retired outright
 

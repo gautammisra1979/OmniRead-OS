@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import { getCatalogItems } from "~/db/queries";
 import type { CatalogItem } from "~/data/catalog";
-import { getActiveReferrer } from "~/data/affiliate";
 
 interface CrossSellGridProps {
   product: CatalogItem;
@@ -27,7 +26,6 @@ function scoreMatch(a: CatalogItem, b: CatalogItem): number {
 export function CrossSellGrid({ product }: CrossSellGridProps) {
   const { t } = useLanguage();
   const [matches, setMatches] = useState<CatalogItem[]>([]);
-  const [refParam, setRefParam] = useState("");
 
   useEffect(() => {
     getCatalogItems()
@@ -42,17 +40,15 @@ export function CrossSellGrid({ product }: CrossSellGridProps) {
         setMatches(scored);
       })
       .catch(() => setMatches([]));
-
-    const activeRef = getActiveReferrer();
-    if (activeRef) setRefParam(activeRef.ref);
   }, [product.id, product.quizMood, product.quizFormat, product.quizHook, product.quizPace]);
 
   if (matches.length === 0) return null;
 
-  const buildLink = (path: string): string => {
-    const base = path.startsWith("/") ? path : `/${path}`;
-    return refParam ? `${base}?ref=${encodeURIComponent(refParam)}` : base;
-  };
+  // Referral attribution is a durable, 30-day server-side record keyed to
+  // real session identity (affiliate_referrals — see AffiliateReferralBoot
+  // and affiliateProgram.ts) — it doesn't need re-affirming via a ref param
+  // propagated through cross-sell links.
+  const buildLink = (path: string): string => (path.startsWith("/") ? path : `/${path}`);
 
   return (
     <section

@@ -3,7 +3,13 @@ import { useLanguage } from "~/components/LanguageProvider";
 import { useBranding } from "~/components/BrandingProvider";
 import { type Locale } from "~/data/translations";
 import { getWallet, addCredits } from "~/data/wallet";
-import { getAffiliateProfile, getAffiliateLedger } from "~/data/affiliate";
+import {
+  getMyAffiliateProfile,
+  getMyAffiliateLedger,
+  type AffiliateProfileRow,
+  type AffiliateLedgerRow,
+  type LedgerDisplayStatus,
+} from "~/data/affiliateProgram";
 import {
   getLocalStorageUsageBytes,
   getLocalStorageLimit,
@@ -17,6 +23,22 @@ import {
 import { getSyncStatus, disconnectCloud, uploadToCloud } from "~/data/cloudSync";
 
 type TabId = "profile" | "billing" | "history" | "storage";
+
+const HISTORY_STATUS_LABELS: Record<LedgerDisplayStatus, string> = {
+  in_hold: "In Hold",
+  payable: "Payable",
+  paid: "Paid",
+  converted: "Converted",
+  voided: "Voided",
+};
+
+const HISTORY_STATUS_COLORS: Record<LedgerDisplayStatus, string> = {
+  in_hold: "#94a3b8",
+  payable: "#fbbf24",
+  paid: "#34d399",
+  converted: "#818cf8",
+  voided: "#f87171",
+};
 
 interface TabConfig {
   id: TabId;
@@ -57,8 +79,8 @@ export function UserControlCenter({
   const [refillLoading, setRefillLoading] = useState(false);
 
   // History state
-  const [affiliateProfile, setAffiliateProfile] = useState<ReturnType<typeof getAffiliateProfile>>(null);
-  const [affiliateLedger, setAffiliateLedger] = useState<ReturnType<typeof getAffiliateLedger>>([]);
+  const [affiliateProfile, setAffiliateProfile] = useState<AffiliateProfileRow | null>(null);
+  const [affiliateLedger, setAffiliateLedger] = useState<(AffiliateLedgerRow & { displayStatus: LedgerDisplayStatus })[]>([]);
 
   // Storage state
   const [storageUsed, setStorageUsed] = useState(0);
@@ -91,8 +113,8 @@ export function UserControlCenter({
     getWallet().then((wallet) => setWalletCredits(wallet.credits));
 
     // History
-    setAffiliateProfile(getAffiliateProfile());
-    setAffiliateLedger(getAffiliateLedger());
+    getMyAffiliateProfile().then(setAffiliateProfile);
+    getMyAffiliateLedger().then(setAffiliateLedger);
 
     // Storage
     setStorageUsed(getLocalStorageUsageBytes());
@@ -371,25 +393,29 @@ export function UserControlCenter({
                           </tr>
                         </thead>
                         <tbody>
-                          {affiliateLedger.map((entry) => (
-                            <tr key={entry.id} className="border-b" style={{ borderColor: "var(--color-border,#334155)" }}>
-                              <td className="px-2 py-2 whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
-                                {new Date(entry.timestamp).toLocaleDateString()}
-                              </td>
-                              <td className="px-2 py-2" style={{ color: "var(--color-text)" }}>{entry.bookTitle}</td>
-                              <td className="px-2 py-2 text-right" style={{ color: "#34d399" }}>${entry.commissionSlice.toFixed(2)}</td>
-                              <td className="px-2 py-2">
-                                <span className="rounded px-1.5 py-0.5 text-[10px] font-medium"
-                                  style={{
-                                    backgroundColor: entry.status === "paid" ? "color-mix(in srgb, #34d399 20%, transparent)" : entry.status === "approved" ? "color-mix(in srgb, #fbbf24 20%, transparent)" : "color-mix(in srgb, #94a3b8 20%, transparent)",
-                                    color: entry.status === "paid" ? "#34d399" : entry.status === "approved" ? "#fbbf24" : "#94a3b8",
-                                  }}
-                                >
-                                  {entry.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
+                          {affiliateLedger.map((entry) => {
+                            const statusColor = HISTORY_STATUS_COLORS[entry.displayStatus];
+                            return (
+                              <tr key={entry.id} className="border-b" style={{ borderColor: "var(--color-border,#334155)" }}>
+                                <td className="px-2 py-2 whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
+                                  {new Date(entry.createdAt).toLocaleDateString()}
+                                </td>
+                                <td className="px-2 py-2" style={{ color: "var(--color-text)" }}>{entry.productTitle}</td>
+                                <td className="px-2 py-2 text-right" style={{ color: "#34d399" }}>${Number(entry.commissionSlice).toFixed(2)}</td>
+                                <td className="px-2 py-2">
+                                  <span
+                                    className="rounded px-1.5 py-0.5 text-[10px] font-medium"
+                                    style={{
+                                      backgroundColor: `color-mix(in srgb, ${statusColor} 20%, transparent)`,
+                                      color: statusColor,
+                                    }}
+                                  >
+                                    {HISTORY_STATUS_LABELS[entry.displayStatus]}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
                           {affiliateLedger.length === 0 && (
                             <tr><td colSpan={4} className="px-2 py-4 text-center" style={{ color: "var(--color-text-muted)" }}>{t("affiliate.noActivity")}</td></tr>
                           )}

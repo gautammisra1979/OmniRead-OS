@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
-import { and, eq, inArray, lt, sql as dsql } from "drizzle-orm";
+import { getRequestHeaders } from "@tanstack/react-start/server";
+import { and, desc, eq, inArray, lt, sql as dsql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import {
@@ -12,26 +13,86 @@ import {
   loyaltyLedger,
   type AffiliateProfileRow,
   type AffiliateLedgerRow,
+  type AffiliatePayoutRow,
 } from "~/db/schema";
 import { getUserId } from "~/lib/getUserId";
 import { requireAdmin } from "~/lib/requireAdmin";
+import { auth } from "~/lib/auth";
 import { getAffiliateSettings, type AffiliateSettings } from "~/data/affiliateSettings";
 
 /**
  * Tier A: the real affiliate backend. Replaces the pieces of the localStorage
  * model (src/data/affiliate.ts) that have no server-side equivalent —
  * referral capture, commission crediting, refund voiding, and payout
- * settlement. src/data/affiliate.ts itself and its UI consumers are
- * untouched; nothing here is wired into them yet (Tier B).
+ * settlement.
+ *
+ * Tier B (this pass) adds the profile CRUD, admin listing, payout history,
+ * and computed ledger display-status functions the UI actually calls, and
+ * rewires every UI consumer onto this backend — src/data/affiliate.ts and
+ * its old localStorage model are gone.
  *
  * Each public function is a plain async wrapper around an internal
  * createServerFn, matching the downloads.ts/loyalty.ts pattern.
  */
 
-export type { AffiliateLedgerRow, AffiliateProfileRow };
+export type { AffiliateLedgerRow, AffiliateProfileRow, AffiliatePayoutRow };
+
+/** Thrown by registerAffiliateProfile() when the calling session is
+ *  anonymous. Affiliate profiles are tied to a durable account on purpose —
+ *  an anonymous session's user row has no long-term identity (email,
+ *  password) to receive payouts against or to log back in with later.
+ *
+ *  NOTE (confirmed live): TanStack Start server functions do not preserve
+ *  Error subclass identity across the RPC boundary — a caller on the client
+ *  sees `instanceof AffiliateRegistrationRequiresAccountError` and
+ *  `error.name` both come back false/"Error". Only `.message` survives the
+ *  round trip, so that's the actual contract client code must match on
+ *  (see AffiliateSetup.tsx). The `.name` set below is still useful for any
+ *  server-side caller that never crosses the RPC boundary. */
+export class AffiliateRegistrationRequiresAccountError extends Error {
+  constructor() {
+    super("Affiliate registration requires a real account. Sign up first.");
+    this.name = "AffiliateRegistrationRequiresAccountError";
+  }
+}
+
+/** Thrown by registerAffiliateProfile() when the normalized handle is
+ *  already taken by another affiliate. Same RPC-serialization caveat as
+ *  AffiliateRegistrationRequiresAccountError above — match on `.message`
+ *  client-side, not `.name`/`instanceof`. */
+export class AffiliateHandleTakenError extends Error {
+  constructor(public readonly handle: string) {
+    super("Handle already taken. Try another.");
+    this.name = "AffiliateHandleTakenError";
+  }
+}
+
+export type LedgerDisplayStatus = "in_hold" | "payable" | "paid" | "converted" | "voided";
 
 function db() {
   return drizzle(sql());
+}
+
+/** Same session lookup shape as getUserId.ts, plus the is_anonymous check
+ *  (see auth-schema.ts's `user.isAnonymous`) that registerAffiliateProfile()
+ *  needs and getUserId() deliberately doesn't have. */
+async function getRealUserId(): Promise<string> {
+  const session = await auth.api.getSession({ headers: getRequestHeaders() });
+  if (!session) throw new Error("No session — anonymous sign-in should have run on app load");
+  if (session.user.isAnonymous) throw new AffiliateRegistrationRequiresAccountError();
+  return session.user.id;
+}
+
+/** Shared by getMyAffiliateLedger and getAffiliateLedgerForAdmin so the
+ *  hold-period computation lives in one place. `status: "pending"` is the
+ *  only stored status that needs a computed split — see affiliate_ledger's
+ *  schema comment on why "approved" was never a stored state. */
+function toDisplayStatus(row: AffiliateLedgerRow, settings: AffiliateSettings): LedgerDisplayStatus {
+  if (row.status === "paid") return "paid";
+  if (row.status === "converted") return "converted";
+  if (row.status === "voided") return "voided";
+  const cutoff = new Date(Date.now() - settings.holdPeriodDays * 24 * 60 * 60 * 1000);
+  return row.createdAt < cutoff ? "payable" : "in_hold";
 }
 
 /** Case-insensitive exact handle lookup — matches the old handleExists()
@@ -111,6 +172,156 @@ async function resolveEligibleForAffiliate(
     });
   }
 }
+
+/* ─── Internal server functions: Profile CRUD (self-scoped) ─── */
+
+const dbRegisterAffiliateProfile = createServerFn({ method: "POST" })
+  .validator(
+    (data: {
+      handle: string;
+      brandName: string;
+      paymentMethod: "paypal" | "venmo" | "crypto";
+      paymentDetail: string;
+    }) => data,
+  )
+  .handler(async ({ data }): Promise<AffiliateProfileRow> => {
+    const userId = await getRealUserId();
+    const database = db();
+
+    const normalizedHandle = data.handle.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    const existing = await findAffiliateByHandle(database, normalizedHandle);
+    if (existing) throw new AffiliateHandleTakenError(normalizedHandle);
+
+    const [row] = await database
+      .insert(affiliateProfiles)
+      .values({
+        userId,
+        handle: normalizedHandle,
+        brandName: data.brandName.trim(),
+        paymentMethod: data.paymentMethod,
+        paymentDetail: data.paymentDetail,
+        payoutPreference: "cash",
+      })
+      .returning();
+    return row;
+  });
+
+const dbUpdateAffiliateProfile = createServerFn({ method: "POST" })
+  .validator(
+    (data: {
+      brandName?: string;
+      paymentMethod?: "paypal" | "venmo" | "crypto";
+      paymentDetail?: string;
+      payoutPreference?: "cash" | "loyalty_credit";
+    }) => data,
+  )
+  .handler(async ({ data }): Promise<void> => {
+    const userId = await getUserId();
+    const database = db();
+
+    const rows = await database.select().from(affiliateProfiles).where(eq(affiliateProfiles.userId, userId));
+    if (!rows[0]) throw new Error("No affiliate profile found for this account.");
+
+    await database
+      .update(affiliateProfiles)
+      .set({
+        ...(data.brandName !== undefined ? { brandName: data.brandName } : {}),
+        ...(data.paymentMethod !== undefined ? { paymentMethod: data.paymentMethod } : {}),
+        ...(data.paymentDetail !== undefined ? { paymentDetail: data.paymentDetail } : {}),
+        ...(data.payoutPreference !== undefined ? { payoutPreference: data.payoutPreference } : {}),
+      })
+      .where(eq(affiliateProfiles.userId, userId));
+  });
+
+const dbGetMyAffiliateProfile = createServerFn({ method: "GET" }).handler(
+  async (): Promise<AffiliateProfileRow | null> => {
+    const userId = await getUserId();
+    const rows = await db().select().from(affiliateProfiles).where(eq(affiliateProfiles.userId, userId));
+    return rows[0] ?? null;
+  },
+);
+
+const dbGetMyAffiliateLedger = createServerFn({ method: "GET" }).handler(
+  async (): Promise<(AffiliateLedgerRow & { displayStatus: LedgerDisplayStatus })[]> => {
+    const userId = await getUserId();
+    const database = db();
+
+    const profileRows = await database.select().from(affiliateProfiles).where(eq(affiliateProfiles.userId, userId));
+    const profile = profileRows[0];
+    if (!profile) return [];
+
+    const settings = await getAffiliateSettings();
+    // This is "the affiliate's own non-admin dashboard load" that
+    // resolveEligibleForAffiliate's docstring refers to — nothing else in
+    // the self-scoped API triggers loyalty-credit conversion, so it has to
+    // happen here.
+    await resolveEligibleForAffiliate(database, profile, settings);
+
+    const rows = await database
+      .select()
+      .from(affiliateLedger)
+      .where(eq(affiliateLedger.affiliateId, profile.id))
+      .orderBy(desc(affiliateLedger.createdAt));
+    return rows.map((row) => ({ ...row, displayStatus: toDisplayStatus(row, settings) }));
+  },
+);
+
+const dbGetMyClickCount = createServerFn({ method: "GET" }).handler(async (): Promise<number> => {
+  const userId = await getUserId();
+  const database = db();
+
+  const profileRows = await database.select().from(affiliateProfiles).where(eq(affiliateProfiles.userId, userId));
+  const profile = profileRows[0];
+  if (!profile) return 0;
+
+  const rows = await database
+    .select()
+    .from(affiliateClickEvents)
+    .where(eq(affiliateClickEvents.affiliateId, profile.id));
+  return rows.length;
+});
+
+/* ─── Internal server functions: Admin ─── */
+
+const dbGetAllAffiliateProfiles = createServerFn({ method: "GET" }).handler(
+  async (): Promise<AffiliateProfileRow[]> => {
+    await requireAdmin();
+    return db().select().from(affiliateProfiles).orderBy(desc(affiliateProfiles.registeredAt));
+  },
+);
+
+const dbGetAffiliateLedgerForAdmin = createServerFn({ method: "GET" })
+  .validator((affiliateId: string) => affiliateId)
+  .handler(async ({ data: affiliateId }): Promise<(AffiliateLedgerRow & { displayStatus: LedgerDisplayStatus })[]> => {
+    await requireAdmin();
+    const database = db();
+    const settings = await getAffiliateSettings();
+
+    const affiliateRows = await database.select().from(affiliateProfiles).where(eq(affiliateProfiles.id, affiliateId));
+    if (affiliateRows[0]) await resolveEligibleForAffiliate(database, affiliateRows[0], settings);
+
+    const rows = await database
+      .select()
+      .from(affiliateLedger)
+      .where(eq(affiliateLedger.affiliateId, affiliateId))
+      .orderBy(desc(affiliateLedger.createdAt));
+    return rows.map((row) => ({ ...row, displayStatus: toDisplayStatus(row, settings) }));
+  });
+
+const dbGetPayoutHistory = createServerFn({ method: "GET" })
+  .validator((affiliateId: string | undefined) => affiliateId)
+  .handler(async ({ data: affiliateId }): Promise<AffiliatePayoutRow[]> => {
+    await requireAdmin();
+    const database = db();
+    if (affiliateId) {
+      return database
+        .select()
+        .from(affiliatePayouts)
+        .where(eq(affiliatePayouts.affiliateId, affiliateId))
+        .orderBy(desc(affiliatePayouts.settledAt));
+    }
+    return database.select().from(affiliatePayouts).orderBy(desc(affiliatePayouts.settledAt));
+  });
 
 /* ─── Internal server functions ─── */
 
@@ -229,39 +440,52 @@ const dbResolvePendingLedgerEntries = createServerFn({ method: "POST" })
     await resolveEligibleForAffiliate(database, affiliate, settings);
   });
 
+export interface PayableSummaryRow {
+  affiliateId: string;
+  handle: string;
+  brandName: string;
+  payableAmount: number;
+  payableCount: number;
+  inHoldAmount: number;
+  inHoldCount: number;
+}
+
 const dbGetPayableSummary = createServerFn({ method: "GET" }).handler(
-  async (): Promise<{ affiliateId: string; handle: string; payableAmount: number; entryCount: number }[]> => {
+  async (): Promise<PayableSummaryRow[]> => {
     await requireAdmin();
     const database = db();
     const settings = await getAffiliateSettings();
     const cutoff = new Date(Date.now() - settings.holdPeriodDays * 24 * 60 * 60 * 1000);
     const affiliates = await database.select().from(affiliateProfiles);
 
-    const summary: { affiliateId: string; handle: string; payableAmount: number; entryCount: number }[] = [];
+    const summary: PayableSummaryRow[] = [];
     for (const affiliate of affiliates) {
       await resolveEligibleForAffiliate(database, affiliate, settings);
 
       const pendingRows = await database
         .select()
         .from(affiliateLedger)
-        .where(
-          and(
-            eq(affiliateLedger.affiliateId, affiliate.id),
-            eq(affiliateLedger.status, "pending"),
-            lt(affiliateLedger.createdAt, cutoff),
-          ),
-        );
-      if (pendingRows.length === 0) continue;
+        .where(and(eq(affiliateLedger.affiliateId, affiliate.id), eq(affiliateLedger.status, "pending")));
 
-      const payableAmount =
-        Math.round(pendingRows.reduce((sum, row) => sum + Number(row.commissionSlice), 0) * 100) / 100;
-      if (payableAmount <= 0) continue;
+      // Split by hold-period cutoff instead of filtering it out of the query
+      // — the store owner explicitly needs to see what's still in hold, not
+      // just what's payable now (this is the one thing dbGetPayableSummary
+      // used to silently drop).
+      const payableRows = pendingRows.filter((row) => row.createdAt < cutoff);
+      const inHoldRows = pendingRows.filter((row) => row.createdAt >= cutoff);
+
+      const payableAmount = Math.round(payableRows.reduce((sum, row) => sum + Number(row.commissionSlice), 0) * 100) / 100;
+      const inHoldAmount = Math.round(inHoldRows.reduce((sum, row) => sum + Number(row.commissionSlice), 0) * 100) / 100;
+      if (payableAmount <= 0 && inHoldAmount <= 0) continue;
 
       summary.push({
         affiliateId: affiliate.id,
         handle: affiliate.handle,
+        brandName: affiliate.brandName,
         payableAmount,
-        entryCount: pendingRows.length,
+        payableCount: payableRows.length,
+        inHoldAmount,
+        inHoldCount: inHoldRows.length,
       });
     }
     return summary;
@@ -322,6 +546,56 @@ const dbSettleAffiliatePayout = createServerFn({ method: "POST" })
     return { amount };
   });
 
+/* ─── Public API: Profile CRUD (self-scoped) ─── */
+
+export async function registerAffiliateProfile(data: {
+  handle: string;
+  brandName: string;
+  paymentMethod: "paypal" | "venmo" | "crypto";
+  paymentDetail: string;
+}): Promise<AffiliateProfileRow> {
+  return dbRegisterAffiliateProfile({ data });
+}
+
+export async function updateAffiliateProfile(data: {
+  brandName?: string;
+  paymentMethod?: "paypal" | "venmo" | "crypto";
+  paymentDetail?: string;
+  payoutPreference?: "cash" | "loyalty_credit";
+}): Promise<void> {
+  return dbUpdateAffiliateProfile({ data });
+}
+
+export async function getMyAffiliateProfile(): Promise<AffiliateProfileRow | null> {
+  return dbGetMyAffiliateProfile();
+}
+
+export async function getMyAffiliateLedger(): Promise<
+  (AffiliateLedgerRow & { displayStatus: LedgerDisplayStatus })[]
+> {
+  return dbGetMyAffiliateLedger();
+}
+
+export async function getMyClickCount(): Promise<number> {
+  return dbGetMyClickCount();
+}
+
+/* ─── Public API: Admin ─── */
+
+export async function getAllAffiliateProfiles(): Promise<AffiliateProfileRow[]> {
+  return dbGetAllAffiliateProfiles();
+}
+
+export async function getAffiliateLedgerForAdmin(
+  affiliateId: string,
+): Promise<(AffiliateLedgerRow & { displayStatus: LedgerDisplayStatus })[]> {
+  return dbGetAffiliateLedgerForAdmin({ data: affiliateId });
+}
+
+export async function getPayoutHistory(affiliateId?: string): Promise<AffiliatePayoutRow[]> {
+  return dbGetPayoutHistory({ data: affiliateId });
+}
+
 /* ─── Public API ─── */
 
 export async function captureReferral(handle: string): Promise<void> {
@@ -348,9 +622,7 @@ export async function resolvePendingLedgerEntries(affiliateId: string): Promise<
   return dbResolvePendingLedgerEntries({ data: affiliateId });
 }
 
-export async function getPayableSummary(): Promise<
-  { affiliateId: string; handle: string; payableAmount: number; entryCount: number }[]
-> {
+export async function getPayableSummary(): Promise<PayableSummaryRow[]> {
   return dbGetPayableSummary();
 }
 

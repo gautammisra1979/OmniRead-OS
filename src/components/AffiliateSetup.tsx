@@ -1,42 +1,55 @@
 import { useState, useCallback } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { saveAffiliateProfile, handleExists, type AffiliateProfile } from "~/data/affiliate";
+import { registerAffiliateProfile } from "~/data/affiliateProgram";
 
 interface AffiliateSetupProps {
   onComplete: () => void;
-  existingProfile?: AffiliateProfile | null;
 }
 
-export function AffiliateSetup({ onComplete, existingProfile }: AffiliateSetupProps) {
+export function AffiliateSetup({ onComplete }: AffiliateSetupProps) {
   const { t } = useLanguage();
-  const [step, setStep] = useState(existingProfile ? 2 : 1);
-  const [brandName, setBrandName] = useState(existingProfile?.brandName ?? "");
-  const [handle, setHandle] = useState(existingProfile?.handle ?? "");
-  const [paymentMethod, setPaymentMethod] = useState<"paypal" | "venmo" | "crypto">(
-    existingProfile?.paymentMethod ?? "paypal"
-  );
-  const [paymentDetail, setPaymentDetail] = useState(existingProfile?.paymentDetail ?? "");
+  const [step, setStep] = useState<1 | 2>(1);
+  const [brandName, setBrandName] = useState("");
+  const [handle, setHandle] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"paypal" | "venmo" | "crypto">("paypal");
+  const [paymentDetail, setPaymentDetail] = useState("");
   const [handleWarning, setHandleWarning] = useState(false);
+  const [accountRequiredWarning, setAccountRequiredWarning] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [registeredHandle, setRegisteredHandle] = useState("");
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
-  const handleRegister = useCallback(() => {
+  const handleRegister = useCallback(async () => {
     if (!brandName.trim() || !handle.trim()) return;
-    if (!existingProfile && handleExists(handle.trim())) {
-      setHandleWarning(true);
-      return;
-    }
+    setSubmitting(true);
     setHandleWarning(false);
-    const profile: AffiliateProfile = {
-      handle: handle.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_"),
-      brandName: brandName.trim(),
-      registeredAt: existingProfile?.registeredAt ?? new Date().toISOString(),
-      paymentMethod,
-      paymentDetail,
-    };
-    saveAffiliateProfile(profile);
-    setStep(2);
-    if (existingProfile) onComplete();
-  }, [brandName, handle, paymentMethod, paymentDetail, existingProfile, onComplete]);
+    setAccountRequiredWarning(false);
+    try {
+      const profile = await registerAffiliateProfile({
+        handle: handle.trim(),
+        brandName: brandName.trim(),
+        paymentMethod,
+        paymentDetail,
+      });
+      setRegisteredHandle(profile.handle);
+      setStep(2);
+    } catch (error) {
+      // TanStack Start server functions don't preserve Error subclass
+      // identity across the RPC boundary — `instanceof` and `.name` both
+      // come back as plain `Error` client-side. Only `.message` survives,
+      // so that's what has to carry the distinction (confirmed live: see
+      // AffiliateHandleTakenError / AffiliateRegistrationRequiresAccountError
+      // in affiliateProgram.ts — their messages are the stable contract).
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("requires a real account")) {
+        setAccountRequiredWarning(true);
+      } else {
+        setHandleWarning(true);
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }, [brandName, handle, paymentMethod, paymentDetail]);
 
   const copyToClipboard = useCallback(async (text: string) => {
     try {
@@ -56,13 +69,10 @@ export function AffiliateSetup({ onComplete, existingProfile }: AffiliateSetupPr
     }
   }, []);
 
-  const storefrontLink = `${window.location.origin}/?ref=${handle}`;
-  const bookLink = `${window.location.origin}/?ref=${handle}&book=BOOK_ID`;
+  const storefrontLink = `${window.location.origin}/?ref=${registeredHandle}`;
 
   return (
-    <div
-      className="mx-auto max-w-2xl"
-    >
+    <div className="mx-auto max-w-2xl">
       {step === 1 && (
         <div
           className="rounded-xl border p-6"
@@ -115,6 +125,11 @@ export function AffiliateSetup({ onComplete, existingProfile }: AffiliateSetupPr
               {handleWarning && (
                 <p className="mt-1 text-[10px] text-red-400" role="alert">Handle already taken. Try another.</p>
               )}
+              {accountRequiredWarning && (
+                <p className="mt-1 text-[10px] text-red-400" role="alert">
+                  Affiliate registration requires a real account. Please sign up first.
+                </p>
+              )}
             </div>
 
             {/* Payment Method */}
@@ -155,18 +170,18 @@ export function AffiliateSetup({ onComplete, existingProfile }: AffiliateSetupPr
             <button
               type="button"
               onClick={handleRegister}
-              disabled={!brandName.trim() || !handle.trim()}
+              disabled={!brandName.trim() || !handle.trim() || submitting}
               className="w-full rounded-lg px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110 disabled:opacity-40"
               style={{ backgroundColor: "var(--color-primary,#6366f1)" }}
               aria-label={t("affiliate.register")}
             >
-              {existingProfile ? t("affiliate.saveProfile") : t("affiliate.register")}
+              {submitting ? "..." : t("affiliate.register")}
             </button>
           </div>
         </div>
       )}
 
-      {step === 2 && !existingProfile && (
+      {step === 2 && (
         <div
           className="rounded-xl border p-6"
           style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-surface,#1e293b)" }}
@@ -201,33 +216,6 @@ export function AffiliateSetup({ onComplete, existingProfile }: AffiliateSetupPr
                 </button>
               </div>
             </div>
-
-            <div className="rounded-lg border p-4" style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-bg,#0f172a)" }}>
-              <p className="text-xs font-semibold mb-1" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
-                {t("affiliate.bookLink")}
-              </p>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 truncate rounded bg-black/30 px-2 py-1 text-xs font-mono" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
-                  {bookLink}
-                </code>
-                <button
-                  type="button"
-                  onClick={() => copyToClipboard(bookLink)}
-                  className="shrink-0 rounded px-2 py-1 text-[10px] font-medium transition-colors"
-                  style={{
-                    color: copiedLink === bookLink ? "#34d399" : "var(--color-text-muted,#94a3b8)",
-                    backgroundColor: "var(--color-surface,#1e293b)",
-                  }}
-                  aria-label="Copy book link"
-                >
-                  {copiedLink === bookLink ? "Copied!" : "Copy"}
-                </button>
-              </div>
-            </div>
-
-            <p className="text-xs italic" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
-              {t("affiliate.replaceBookId")}
-            </p>
 
             <button
               type="button"
