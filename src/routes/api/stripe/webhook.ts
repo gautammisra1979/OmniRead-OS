@@ -4,7 +4,7 @@ import { stripe } from "~/lib/stripe";
 import { getCatalogItemById } from "~/db/queries";
 import { insertDownloadIfNew } from "~/data/downloads";
 import { creditAffiliateForPurchaseForBuyer } from "~/data/affiliateProgram";
-import { clearCartForUser } from "~/data/cart";
+import { removeCartItemsForUser } from "~/data/cart";
 
 /**
  * Stripe webhook — the real purchase-completion work now happens here,
@@ -79,9 +79,12 @@ async function handleCheckoutSessionCompleted(event: Stripe.Event): Promise<void
     expand: ["line_items", "line_items.data.price"],
   });
 
+  const purchasedProductIds: string[] = [];
+
   for (const lineItem of full.line_items?.data ?? []) {
     const productId = lineItem.metadata?.productId;
     if (!productId) continue;
+    purchasedProductIds.push(productId);
 
     const item = await getCatalogItemById({ data: productId });
     if (!item) continue;
@@ -117,9 +120,11 @@ async function handleCheckoutSessionCompleted(event: Stripe.Event): Promise<void
     }
   }
 
-  // Cleared last, after downloads are written — a failure partway through
+  // Removed last, after downloads are written — a failure partway through
   // the loop above leaves the cart intact and the whole event retryable
   // (Stripe redelivers on non-2xx / timeout) rather than silently losing
-  // the purchase.
-  await clearCartForUser(userId);
+  // the purchase. Scoped to exactly the productIds this session charged
+  // for (Buy Now bypasses the cart, so a full clear here would also wipe
+  // out unrelated items the buyer still has sitting in their cart).
+  await removeCartItemsForUser(userId, purchasedProductIds);
 }

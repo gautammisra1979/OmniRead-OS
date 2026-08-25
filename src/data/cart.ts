@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { cartItems, cartState, type CartItemRow, type CartStateRow } from "~/db/schema";
@@ -188,9 +188,7 @@ const dbRemoveFromCart = createServerFn({ method: "POST" })
     return loadCart(userId);
   });
 
-/** Shared by dbClearCart (client path, userId from session) and
- *  clearCartForUser (server-to-server path, e.g. the Stripe webhook, where
- *  userId comes from trusted checkout-session metadata instead). */
+/** Backs dbClearCart (client path, userId from session). */
 async function clearCartRows(userId: string): Promise<CartState> {
   const database = db();
   await database.delete(cartItems).where(eq(cartItems.userId, userId));
@@ -332,15 +330,24 @@ export async function clearCart(): Promise<CartState> {
 }
 
 /**
- * Server-to-server variant of clearCart(), for the Stripe webhook
+ * Server-to-server variant of removeFromCart(), for the Stripe webhook
  * (src/routes/api/stripe/webhook.ts) — that request carries no buyer
  * session, so getUserId() can't resolve anything there. userId must come
  * from a trusted source (the checkout session's own metadata, set
  * server-side at session-creation time), never from an untrusted caller.
- * Not a createServerFn — never reachable as an RPC endpoint.
+ * Only removes cart_items rows matching one of the given productIds —
+ * deliberately scoped, not a full clear, since a Buy Now checkout only
+ * ever charges for one item and must leave the rest of the buyer's
+ * persisted cart untouched. Not a createServerFn — never reachable as an
+ * RPC endpoint.
  */
-export async function clearCartForUser(userId: string): Promise<void> {
-  await clearCartRows(userId);
+export async function removeCartItemsForUser(userId: string, productIds: string[]): Promise<void> {
+  if (productIds.length === 0) return;
+  const database = db();
+  await database
+    .delete(cartItems)
+    .where(and(eq(cartItems.userId, userId), inArray(cartItems.productId, productIds)));
+  await upsertCartState(database, userId, {});
 }
 
 export async function getCartItemCount(): Promise<number> {
