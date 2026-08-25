@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
-import { createFileRoute, useParams, Link } from "@tanstack/react-router";
+import { createFileRoute, useParams, useNavigate, Link } from "@tanstack/react-router";
 import { useLanguage } from "~/components/LanguageProvider";
 import { ReaderHUD } from "~/components/ReaderHUD";
 import { getAllProducts } from "~/data/products";
 import type { Product } from "~/data/products";
+import { checkPurchased } from "~/lib/mediaAccess";
 
 export const Route = createFileRoute("/reader/$productId")({
   component: ReaderRoute,
@@ -11,19 +12,31 @@ export const Route = createFileRoute("/reader/$productId")({
 
 function ReaderRoute() {
   const { productId } = useParams({ from: "/reader/$productId" });
+  const navigate = useNavigate();
   const { t } = useLanguage();
   const [product, setProduct] = useState<Product | null>(null);
+  const [owns, setOwns] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     getAllProducts().then((all) => {
       if (cancelled) return;
-      setProduct(all.find((p) => p.id === productId) ?? null);
+      const found = all.find((p) => p.id === productId) ?? null;
+      setProduct(found);
+      if (!found) return;
+      checkPurchased(productId).then((purchased) => {
+        if (cancelled) return;
+        if (purchased) {
+          setOwns(true);
+        } else {
+          navigate({ to: "/product/$productId", params: { productId } });
+        }
+      });
     });
     return () => {
       cancelled = true;
     };
-  }, [productId]);
+  }, [productId, navigate]);
 
   const handleClose = () => {
     if (typeof window !== "undefined") {
@@ -49,6 +62,8 @@ function ReaderRoute() {
       </div>
     );
   }
+
+  if (!owns) return null;
 
   return (
     <ReaderHUD

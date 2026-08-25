@@ -26,7 +26,11 @@ export function MediaPlayer({ product }: MediaPlayerProps) {
   if (product.type === "ebook") return null;
 
   const isVideo = product.type === "video";
-  const mediaUrl = product.mediaFile?.dataUrl || (isVideo ? SAMPLE_VIDEO : SAMPLE_AUDIO);
+  const mediaUrl = product.mediaFile?.dataUrl
+    ? `/api/media/${product.id}`
+    : isVideo
+      ? SAMPLE_VIDEO
+      : SAMPLE_AUDIO;
 
   // Load VTT
   useEffect(() => {
