@@ -7,14 +7,11 @@ import {
   getClaimCounts,
   type RefundClaim,
 } from "~/data/refunds";
-import { getCurrentPoints, addLedgerEntry } from "~/data/loyalty";
-import { markTransactionRefunded } from "~/data/stripeCheckout";
 
 export function RefundClaimsManager() {
   const { t } = useLanguage();
   const [claims, setClaims] = useState<RefundClaim[]>([]);
   const [counts, setCounts] = useState({ pending: 0, approved: 0, rejected: 0 });
-  const [restorePoints, setRestorePoints] = useState(true);
   const [statusMsg, setStatusMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [adminNotes, setAdminNotes] = useState("");
 
@@ -27,23 +24,18 @@ export function RefundClaimsManager() {
   useEffect(() => { refresh(); }, [refresh]);
 
   const handleApprove = useCallback(async (claim: RefundClaim) => {
+    // The real Stripe refund, download/affiliate/loyalty updates, and the
+    // idempotency guard all now live server-side in refunds.ts — this just
+    // triggers it and reports the outcome.
     const result = await approveRefundClaim(claim.id, adminNotes || undefined);
     if (result) {
-      // Restore loyalty points if toggle is on
-      if (restorePoints && claim.refundLoyaltyPoints > 0) {
-        await addLedgerEntry({
-          type: "bonus",
-          points: claim.refundLoyaltyPoints,
-          description: `Refund restoration for "${claim.productTitle}"`,
-        });
-      }
-      // Mark Stripe transaction as refunded
-      await markTransactionRefunded(claim.transactionId);
       setAdminNotes("");
       await refresh();
-      setStatusMsg({ type: "success", text: `Refund approved for "${claim.productTitle}"${restorePoints && claim.refundLoyaltyPoints > 0 ? ` — ${claim.refundLoyaltyPoints} points restored` : ""}` });
+      setStatusMsg({ type: "success", text: `Refund approved for "${claim.productTitle}"${claim.refundLoyaltyPoints > 0 ? ` — ${claim.refundLoyaltyPoints} points clawed back` : ""}` });
+    } else {
+      setStatusMsg({ type: "error", text: `Could not approve refund for "${claim.productTitle}" — it may already be resolved, or the Stripe refund failed.` });
     }
-  }, [restorePoints, adminNotes, refresh]);
+  }, [adminNotes, refresh]);
 
   const handleReject = useCallback(async (claim: RefundClaim) => {
     const result = await rejectRefundClaim(claim.id, adminNotes || undefined);
@@ -96,12 +88,6 @@ export function RefundClaimsManager() {
             <p className="text-[10px]" style={{ color: "var(--color-text-muted,#94a3b8)" }}>{t("checkout.rejected")}</p>
           </div>
         </div>
-
-        {/* Toggle: restore points */}
-        <label className="mb-4 flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={restorePoints} onChange={(e) => setRestorePoints(e.target.checked)} className="rounded" />
-          <span className="text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>{t("checkout.restorePointsToggle")}</span>
-        </label>
 
         {/* Admin notes input */}
         <div className="mb-4">

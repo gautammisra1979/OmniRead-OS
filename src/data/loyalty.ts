@@ -202,6 +202,24 @@ const dbAddLedgerEntry = createServerFn({ method: "POST" })
     return rowToLedgerEntry(row);
   });
 
+/**
+ * Defense in depth: the only intended caller (refund approval in
+ * src/data/refunds.ts) is already admin-gated, but every mutating handler in
+ * this project gates itself individually rather than trusting caller
+ * context (see affiliateProgram.ts's dbVoidAffiliateLedgerForDownload).
+ */
+const dbClawbackLoyaltyPointsForBuyer = createServerFn({ method: "POST" })
+  .validator((data: { userId: string; points: number; description: string }) => data)
+  .handler(async ({ data }): Promise<void> => {
+    await requireAdmin();
+    await db().insert(loyaltyLedger).values({
+      userId: data.userId,
+      type: "redeemed",
+      points: data.points,
+      description: data.description,
+    });
+  });
+
 const dbGetCurrentPoints = createServerFn({ method: "GET" }).handler(
   async (): Promise<number> => {
     const userId = await getUserId();
@@ -253,6 +271,28 @@ export async function addLedgerEntry(
   entry: Omit<LoyaltyLedgerEntry, "id" | "timestamp">,
 ): Promise<LoyaltyLedgerEntry> {
   return dbAddLedgerEntry({ data: entry });
+}
+
+/**
+ * Server-to-server variant for src/data/refunds.ts's refund-approval path.
+ * addLedgerEntry() above always credits the *calling* session's own userId
+ * via getUserId(), never an arbitrary target user, so it can't be reused to
+ * deduct points from the actual buyer — same constraint documented on the
+ * affiliate side by affiliateProgram.ts's resolveEligibleForAffiliate.
+ *
+ * Deliberately not routed through redeemPoints(): a refund clawback isn't a
+ * voluntary redemption, so it must not be blocked by redeemPoints()'s
+ * minimumRedeem/insufficient-balance checks. The points being clawed back
+ * were genuinely earned by a purchase that's now genuinely reversed,
+ * regardless of whether the buyer already spent them elsewhere — so the
+ * resulting balance is allowed to go negative.
+ */
+export async function clawbackLoyaltyPointsForBuyer(
+  buyerUserId: string,
+  points: number,
+  description: string,
+): Promise<void> {
+  return dbClawbackLoyaltyPointsForBuyer({ data: { userId: buyerUserId, points, description } });
 }
 
 /* ─── Points Calculations ─── */

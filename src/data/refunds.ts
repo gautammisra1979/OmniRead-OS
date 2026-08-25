@@ -2,9 +2,13 @@ import { createServerFn } from "@tanstack/react-start";
 import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
-import { refundClaims, type RefundClaimRow } from "~/db/schema";
+import { downloads, refundClaims, type RefundClaimRow } from "~/db/schema";
 import { getUserId } from "~/lib/getUserId";
 import { requireAdmin } from "~/lib/requireAdmin";
+import { stripe } from "~/lib/stripe";
+import { markSingleDownloadRefunded } from "~/data/downloads";
+import { voidAffiliateLedgerForDownload } from "~/data/affiliateProgram";
+import { clawbackLoyaltyPointsForBuyer } from "~/data/loyalty";
 
 /**
  * Phase 1 (Step 26): DB-backed refund claims, replacing the localStorage
@@ -98,17 +102,74 @@ const dbResolveRefundClaim = createServerFn({ method: "POST" })
   )
   .handler(async ({ data: input }): Promise<RefundClaim | null> => {
     await requireAdmin();
-    const userId = await getUserId();
-    const [row] = await db()
+    const database = db();
+
+    // No more scoping by the admin's own userId — requireAdmin() already
+    // gates the caller, and a claim belongs to the buyer, not whoever
+    // happens to click Approve (that was the bug: any claim not owned by
+    // the admin's own account silently no-oped). `status = 'pending'` here
+    // doubles as the idempotency guard: a second call for a claim already
+    // resolved (retried request, doubled click) matches zero rows and is
+    // treated below as "already resolved" rather than reprocessed.
+    const pendingRows = await database
+      .select()
+      .from(refundClaims)
+      .where(and(eq(refundClaims.id, input.id), eq(refundClaims.status, "pending")));
+    const claim = pendingRows[0];
+    if (!claim) return null;
+
+    if (input.status === "approved") {
+      const downloadRows = await database.select().from(downloads).where(eq(downloads.id, claim.downloadId));
+      const download = downloadRows[0];
+
+      if (!download) {
+        console.error(`[refunds] claim ${claim.id} references missing download ${claim.downloadId} — approving without a Stripe refund`);
+      } else if (!download.stripePaymentIntentId) {
+        // Shouldn't happen for anything created after the Checkout Sessions
+        // prompt landed, but old/pre-migration data might lack it.
+        console.error(`[refunds] download ${download.id} has no stripePaymentIntentId (pre-Checkout-Sessions data?) — approving claim ${claim.id} without a Stripe refund`);
+      } else {
+        try {
+          // Stripe call first, DB status flip second — a failed refund must
+          // never let the claim show as approved.
+          await stripe().refunds.create({
+            payment_intent: download.stripePaymentIntentId,
+            amount: Math.round(Number(download.price) * 100),
+          });
+        } catch (error) {
+          console.error(`[refunds] Stripe refund failed for claim ${claim.id}, download ${download.id}:`, error);
+          return null; // claim stays pending — safe to retry
+        }
+      }
+    }
+
+    // Re-guarded by status = 'pending' again — this is the statement that
+    // actually commits the resolution, issued only after any Stripe refund
+    // above has already succeeded.
+    const [row] = await database
       .update(refundClaims)
       .set({
         status: input.status,
         resolvedAt: new Date(),
         ...(input.adminNotes ? { adminNotes: input.adminNotes } : {}),
       })
-      .where(and(eq(refundClaims.id, input.id), eq(refundClaims.userId, userId)))
+      .where(and(eq(refundClaims.id, input.id), eq(refundClaims.status, "pending")))
       .returning();
-    return row ? rowToClaim(row) : null;
+    if (!row) return null;
+
+    if (input.status === "approved") {
+      await markSingleDownloadRefunded(claim.downloadId);
+      await voidAffiliateLedgerForDownload(claim.downloadId);
+      if (claim.refundLoyaltyPoints > 0) {
+        await clawbackLoyaltyPointsForBuyer(
+          claim.userId,
+          claim.refundLoyaltyPoints,
+          `Refund clawback for "${claim.productTitle}"`,
+        );
+      }
+    }
+
+    return rowToClaim(row);
   });
 
 /* ─── Public API ─── */

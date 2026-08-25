@@ -4,8 +4,6 @@ import { stripe } from "~/lib/stripe";
 import { getCart, getRecoveryPromoCode } from "~/data/cart";
 import { getCatalogItemById } from "~/db/queries";
 import { getPromoSettings, calculateDiscountedPrice, type PromoOverride } from "~/data/promotions";
-import { markDownloadsRefunded } from "~/data/downloads";
-import { voidAffiliateLedgerForDownload } from "~/data/affiliateProgram";
 import { getUserId } from "~/lib/getUserId";
 
 /**
@@ -153,20 +151,4 @@ export async function initiateCheckout(singleItem?: SingleItemCheckout): Promise
 export async function buyNow(productId: string): Promise<void> {
   const { redirectUrl } = await initiateCheckout({ productId, quantity: 1 });
   window.location.href = redirectUrl;
-}
-
-/**
- * Flag a transaction and its download records as refunded. Simplified from
- * the simulation-era version: there's no more local StripeTransaction /
- * getTransactions() lookup under the real-Stripe model (Stripe itself is
- * the record of the transaction now), so this drops straight to the part
- * that was already doing real work — marking the download ledger rows
- * refunded and voiding any affiliate ledger entries tied to them. Real
- * Stripe refunds (calling the Refunds API) are a separate follow-on piece.
- */
-export async function markTransactionRefunded(sessionId: string): Promise<void> {
-  const refundedDownloadIds = await markDownloadsRefunded(sessionId);
-  for (const downloadId of refundedDownloadIds) {
-    await voidAffiliateLedgerForDownload(downloadId);
-  }
 }
