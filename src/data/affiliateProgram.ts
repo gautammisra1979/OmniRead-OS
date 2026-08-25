@@ -361,6 +361,46 @@ const dbRecordAffiliateClick = createServerFn({ method: "POST" })
     });
   });
 
+/** Shared by dbCreditAffiliateForPurchase (client path, buyerUserId from
+ *  session) and creditAffiliateForPurchaseForBuyer (server-to-server path,
+ *  e.g. the Stripe webhook, where buyerUserId comes from trusted checkout
+ *  session metadata instead). */
+async function creditAffiliateForBuyer(
+  buyerUserId: string,
+  data: { downloadId: string; productTitle: string; purchaseValue: number },
+): Promise<void> {
+  const database = db();
+
+  const referralRows = await database
+    .select()
+    .from(affiliateReferrals)
+    .where(eq(affiliateReferrals.userId, buyerUserId));
+  const referral = referralRows[0];
+  if (!referral) return;
+  if (referral.expiresAt.getTime() < Date.now()) return;
+
+  const affiliateRows = await database
+    .select()
+    .from(affiliateProfiles)
+    .where(eq(affiliateProfiles.id, referral.affiliateId));
+  const affiliate = affiliateRows[0];
+  if (!affiliate) return;
+  if (affiliate.userId === buyerUserId) return; // self-referral guard
+
+  const settings = await getAffiliateSettings();
+  const commissionSlice = Math.round(data.purchaseValue * settings.commissionRate * 100) / 100;
+
+  await database.insert(affiliateLedger).values({
+    affiliateId: affiliate.id,
+    downloadId: data.downloadId,
+    buyerUserId,
+    productTitle: data.productTitle,
+    purchaseValue: String(data.purchaseValue),
+    commissionSlice: String(commissionSlice),
+    status: "pending",
+  });
+}
+
 const dbCreditAffiliateForPurchase = createServerFn({ method: "POST" })
   .validator((data: { downloadId: string; productTitle: string; purchaseValue: number }) => data)
   .handler(async ({ data }): Promise<void> => {
@@ -368,36 +408,7 @@ const dbCreditAffiliateForPurchase = createServerFn({ method: "POST" })
     // a client-callable server function and downloadId/purchaseValue are
     // client-supplied, but who gets charged/credited must not be.
     const buyerUserId = await getUserId();
-    const database = db();
-
-    const referralRows = await database
-      .select()
-      .from(affiliateReferrals)
-      .where(eq(affiliateReferrals.userId, buyerUserId));
-    const referral = referralRows[0];
-    if (!referral) return;
-    if (referral.expiresAt.getTime() < Date.now()) return;
-
-    const affiliateRows = await database
-      .select()
-      .from(affiliateProfiles)
-      .where(eq(affiliateProfiles.id, referral.affiliateId));
-    const affiliate = affiliateRows[0];
-    if (!affiliate) return;
-    if (affiliate.userId === buyerUserId) return; // self-referral guard
-
-    const settings = await getAffiliateSettings();
-    const commissionSlice = Math.round(data.purchaseValue * settings.commissionRate * 100) / 100;
-
-    await database.insert(affiliateLedger).values({
-      affiliateId: affiliate.id,
-      downloadId: data.downloadId,
-      buyerUserId,
-      productTitle: data.productTitle,
-      purchaseValue: String(data.purchaseValue),
-      commissionSlice: String(commissionSlice),
-      status: "pending",
-    });
+    await creditAffiliateForBuyer(buyerUserId, data);
   });
 
 const dbVoidAffiliateLedgerForDownload = createServerFn({ method: "POST" })
@@ -612,6 +623,21 @@ export async function creditAffiliateForPurchase(data: {
   purchaseValue: number;
 }): Promise<void> {
   return dbCreditAffiliateForPurchase({ data });
+}
+
+/**
+ * Server-to-server variant for src/routes/api/stripe/webhook.ts, where
+ * there is no buyer session on the incoming request — buyerUserId here must
+ * come from a trusted source (the Stripe checkout session's own metadata,
+ * itself set server-side at session-creation time), never from an
+ * untrusted caller. Not a createServerFn — never reachable as an RPC
+ * endpoint, unlike creditAffiliateForPurchase() above.
+ */
+export async function creditAffiliateForPurchaseForBuyer(
+  buyerUserId: string,
+  data: { downloadId: string; productTitle: string; purchaseValue: number },
+): Promise<void> {
+  return creditAffiliateForBuyer(buyerUserId, data);
 }
 
 export async function voidAffiliateLedgerForDownload(downloadId: string): Promise<void> {

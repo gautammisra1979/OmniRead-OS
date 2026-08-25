@@ -1,0 +1,2 @@
+ALTER TABLE "downloads" ADD COLUMN "stripe_payment_intent_id" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "downloads_session_id_product_id_unique" ON "downloads" USING btree ("session_id","product_id");

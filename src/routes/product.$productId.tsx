@@ -10,6 +10,7 @@ import { CrossSellGrid } from "~/components/CrossSellGrid";
 import { CommentTree } from "~/components/CommentTree";
 import { getPromoSettings } from "~/data/promotions";
 import { addToCart, getRecoveryPromoCode } from "~/data/cart";
+import { buyNow } from "~/data/stripeCheckout";
 
 export const Route = createFileRoute("/product/$productId")({
   component: RouteComponent,
@@ -46,6 +47,8 @@ function RouteComponent() {
   const [catalogItem, setCatalogItem] = useState<CatalogItem | null>(null);
   const [selectedFormat, setSelectedFormat] = useState<string>("");
   const [addedToCart, setAddedToCart] = useState(false);
+  const [buyNowLoading, setBuyNowLoading] = useState(false);
+  const [buyNowError, setBuyNowError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -96,6 +99,20 @@ function RouteComponent() {
     });
     setAddedToCart(true);
     setTimeout(() => setAddedToCart(false), 3000);
+  };
+
+  const handleBuyNow = async () => {
+    if (!product) return;
+    setBuyNowError("");
+    setBuyNowLoading(true);
+    try {
+      await buyNow(product.id);
+      // On success buyNow() navigates the browser away — no need to clear
+      // the loading state, this component is about to unmount.
+    } catch {
+      setBuyNowError(t("product.buyNowError") ?? "Checkout failed. Please try again.");
+      setBuyNowLoading(false);
+    }
   };
 
   if (!product) {
@@ -328,8 +345,23 @@ function RouteComponent() {
                   >
                     {addedToCart ? "✓ " + (t("product.added") ?? "Added!") : (t("product.buy") ?? "Add to Cart")}
                   </button>
+                  <button
+                    type="button"
+                    onClick={handleBuyNow}
+                    disabled={buyNowLoading}
+                    className="rounded-lg border px-5 py-2.5 text-sm font-semibold transition-all hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-60"
+                    style={{ borderColor: "var(--color-primary,#6366f1)", color: "var(--color-primary,#6366f1)" }}
+                    aria-label={`${t("product.buyNow") ?? "Buy Now"} — ${product.title}`}
+                  >
+                    {buyNowLoading ? "..." : (t("product.buyNow") ?? "Buy Now")}
+                  </button>
                 </div>
               </div>
+              {buyNowError && (
+                <p className="mt-3 text-right text-sm text-red-500" role="alert">
+                  {buyNowError}
+                </p>
+              )}
             </div>
           </div>
         </div>

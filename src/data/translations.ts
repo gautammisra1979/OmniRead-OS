@@ -38,7 +38,10 @@ export const translations: Record<string, Record<string, string>> = {
     "catalog.statusLive": "Live",
     "catalog.statusComingSoon": "Coming Soon",
     "catalog.statusRetired": "Retired",
-    "catalog.statusLabel": "Status"
+    "catalog.statusLabel": "Status",
+
+    "product.buyNow": "Buy Now",
+    "product.buyNowError": "Checkout failed. Please try again."
   },
   fr: {
     "nav.bestsellers": "Meilleures Ventes",
@@ -77,7 +80,10 @@ export const translations: Record<string, Record<string, string>> = {
     "catalog.statusLive": "Actif",
     "catalog.statusComingSoon": "Prochainement",
     "catalog.statusRetired": "Retiré",
-    "catalog.statusLabel": "Statut"
+    "catalog.statusLabel": "Statut",
+
+    "product.buyNow": "Acheter maintenant",
+    "product.buyNowError": "Échec du paiement. Veuillez réessayer."
   },
   es: {
     "nav.bestsellers": "Los Más Vendidos",
@@ -116,6 +122,9 @@ export const translations: Record<string, Record<string, string>> = {
     "catalog.statusLive": "Activo",
     "catalog.statusComingSoon": "Próximamente",
     "catalog.statusRetired": "Retirado",
-    "catalog.statusLabel": "Estado"
+    "catalog.statusLabel": "Estado",
+
+    "product.buyNow": "Comprar ahora",
+    "product.buyNowError": "Error en el pago. Inténtalo de nuevo."
   }
 };

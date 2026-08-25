@@ -159,6 +159,17 @@ const dbIncrementDownloadCount = createServerFn({ method: "POST" })
       .where(eq(downloads.id, id));
   });
 
+const dbGetDownloadsForSession = createServerFn({ method: "GET" })
+  .validator((sessionId: string) => sessionId)
+  .handler(async ({ data: sessionId }): Promise<DownloadRecord[]> => {
+    const userId = await getUserId();
+    const rows = await db()
+      .select()
+      .from(downloads)
+      .where(and(eq(downloads.userId, userId), eq(downloads.sessionId, sessionId)));
+    return rows.map(rowToRecord);
+  });
+
 const dbMarkDownloadsRefunded = createServerFn({ method: "POST" })
   .validator((sessionId: string) => sessionId)
   .handler(async ({ data: sessionId }): Promise<string[]> => {
@@ -199,6 +210,55 @@ export async function addDownload(record: {
 
 export async function incrementDownloadCount(id: string): Promise<void> {
   return dbIncrementDownloadCount({ data: id });
+}
+
+/** Read-only, scoped to the caller's own session — used by
+ *  checkout-success.tsx to poll for the webhook's work landing, without
+ *  trusting a client-supplied session_id to belong to the current visitor. */
+export async function getDownloadsForSession(sessionId: string): Promise<DownloadRecord[]> {
+  return dbGetDownloadsForSession({ data: sessionId });
+}
+
+/**
+ * Server-to-server insert for src/routes/api/stripe/webhook.ts. userId
+ * comes from trusted checkout-session metadata (never from the webhook
+ * request itself, which carries no buyer session). Inserts with
+ * onConflictDoNothing() against the (sessionId, productId) unique index —
+ * this is what makes a redelivered Stripe webhook event safe to reprocess:
+ * a duplicate insert silently no-ops instead of racing a read-then-write
+ * existence check. Returns the inserted row, or null if this (sessionId,
+ * productId) pair was already recorded (i.e. this was a retry).
+ * Not a createServerFn — never reachable as an RPC endpoint.
+ */
+export async function insertDownloadIfNew(record: {
+  userId: string;
+  productId: string;
+  productTitle: string;
+  productAuthor: string;
+  productType: "ebook" | "audiobook" | "video";
+  price: number;
+  purchasedAt: Date;
+  sessionId: string;
+  stripePaymentIntentId: string | null;
+}): Promise<DownloadRecord | null> {
+  const [row] = await db()
+    .insert(downloads)
+    .values({
+      userId: record.userId,
+      productId: record.productId,
+      productTitle: record.productTitle,
+      productAuthor: record.productAuthor,
+      productType: record.productType,
+      price: String(record.price),
+      purchasedAt: record.purchasedAt,
+      lastDownloadedAt: null,
+      downloadCount: 0,
+      sessionId: record.sessionId,
+      stripePaymentIntentId: record.stripePaymentIntentId,
+    })
+    .onConflictDoNothing({ target: [downloads.sessionId, downloads.productId] })
+    .returning();
+  return row ? rowToRecord(row) : null;
 }
 
 /** Returns the ids of the download rows that were flipped to "refunded", so

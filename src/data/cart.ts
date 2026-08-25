@@ -188,21 +188,25 @@ const dbRemoveFromCart = createServerFn({ method: "POST" })
     return loadCart(userId);
   });
 
+/** Shared by dbClearCart (client path, userId from session) and
+ *  clearCartForUser (server-to-server path, e.g. the Stripe webhook, where
+ *  userId comes from trusted checkout-session metadata instead). */
+async function clearCartRows(userId: string): Promise<CartState> {
+  const database = db();
+  await database.delete(cartItems).where(eq(cartItems.userId, userId));
+  await upsertCartState(database, userId, {
+    isAbandoned: false,
+    abandonedAt: null,
+    recoveryCoupon: null,
+    recoveryDiscount: null,
+    recoveryOffered: false,
+    recoveryRedeemed: false,
+  });
+  return loadCart(userId);
+}
+
 const dbClearCart = createServerFn({ method: "POST" }).handler(
-  async (): Promise<CartState> => {
-    const userId = await getUserId();
-    const database = db();
-    await database.delete(cartItems).where(eq(cartItems.userId, userId));
-    await upsertCartState(database, userId, {
-      isAbandoned: false,
-      abandonedAt: null,
-      recoveryCoupon: null,
-      recoveryDiscount: null,
-      recoveryOffered: false,
-      recoveryRedeemed: false,
-    });
-    return loadCart(userId);
-  },
+  async (): Promise<CartState> => clearCartRows(await getUserId()),
 );
 
 const dbGetCartItemCount = createServerFn({ method: "GET" }).handler(
@@ -325,6 +329,18 @@ export async function removeFromCart(productId: string): Promise<CartState> {
 
 export async function clearCart(): Promise<CartState> {
   return dbClearCart();
+}
+
+/**
+ * Server-to-server variant of clearCart(), for the Stripe webhook
+ * (src/routes/api/stripe/webhook.ts) — that request carries no buyer
+ * session, so getUserId() can't resolve anything there. userId must come
+ * from a trusted source (the checkout session's own metadata, set
+ * server-side at session-creation time), never from an untrusted caller.
+ * Not a createServerFn — never reachable as an RPC endpoint.
+ */
+export async function clearCartForUser(userId: string): Promise<void> {
+  await clearCartRows(userId);
 }
 
 export async function getCartItemCount(): Promise<number> {

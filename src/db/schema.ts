@@ -9,6 +9,7 @@ import {
   uuid,
   numeric,
   primaryKey,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { user } from "~/db/auth-schema";
 
@@ -193,22 +194,40 @@ export const loyaltyLedger = pgTable("loyalty_ledger", {
 export type LoyaltyLedgerRow = typeof loyaltyLedger.$inferSelect;
 export type NewLoyaltyLedgerRow = typeof loyaltyLedger.$inferInsert;
 
-export const downloads = pgTable("downloads", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  productId: text("product_id").notNull(),
-  productTitle: text("product_title").notNull(),
-  productAuthor: text("product_author").notNull(),
-  productType: text("product_type").notNull(), // ebook | audiobook | video
-  price: numeric("price", { precision: 10, scale: 2 }).notNull(),
-  purchasedAt: timestamp("purchased_at").notNull(),
-  lastDownloadedAt: timestamp("last_downloaded_at"),
-  downloadCount: integer("download_count").notNull().default(0),
-  status: text("status").notNull().default("active"), // active | refunded
-  sessionId: text("session_id"),
-});
+export const downloads = pgTable(
+  "downloads",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    productId: text("product_id").notNull(),
+    productTitle: text("product_title").notNull(),
+    productAuthor: text("product_author").notNull(),
+    productType: text("product_type").notNull(), // ebook | audiobook | video
+    price: numeric("price", { precision: 10, scale: 2 }).notNull(),
+    purchasedAt: timestamp("purchased_at").notNull(),
+    lastDownloadedAt: timestamp("last_downloaded_at"),
+    downloadCount: integer("download_count").notNull().default(0),
+    status: text("status").notNull().default("active"), // active | refunded
+    sessionId: text("session_id"),
+    // Populated by the Stripe webhook (src/routes/api/stripe/webhook.ts);
+    // consumed by the separate Real Refunds work. Added now rather than in
+    // a second migration on this table later, same reasoning as other
+    // additive fields on this row (e.g. sessionId itself).
+    stripePaymentIntentId: text("stripe_payment_intent_id"),
+  },
+  (table) => ({
+    // The real fix for the checkout duplicate-insert race: the webhook
+    // inserts with onConflictDoNothing() against this index instead of a
+    // read-then-write existence check, so a redelivered Stripe webhook
+    // event is safe by construction.
+    sessionProductUnique: uniqueIndex("downloads_session_id_product_id_unique").on(
+      table.sessionId,
+      table.productId,
+    ),
+  }),
+);
 
 export type DownloadRow = typeof downloads.$inferSelect;
 export type NewDownloadRow = typeof downloads.$inferInsert;

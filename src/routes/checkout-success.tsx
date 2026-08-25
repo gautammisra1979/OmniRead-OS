@@ -1,12 +1,15 @@
 import { useState, useEffect } from "react";
 import { createFileRoute, Link, useSearch } from "@tanstack/react-router";
 import { useLanguage } from "~/components/LanguageProvider";
-import { completeCheckout } from "~/data/stripeCheckout";
+import { getDownloadsForSession } from "~/data/downloads";
 import { CheckoutUpsells } from "~/components/CheckoutUpsells";
 
 export const Route = createFileRoute("/checkout-success")({
   component: CheckoutSuccessPage,
 });
+
+const POLL_INTERVAL_MS = 1500;
+const POLL_TIMEOUT_MS = 10_000;
 
 function CheckoutSuccessPage() {
   const { t } = useLanguage();
@@ -15,18 +18,38 @@ function CheckoutSuccessPage() {
   const [processed, setProcessed] = useState(false);
   const [count, setCount] = useState(0);
 
+  // Purchase completion now happens server-side, in the Stripe webhook —
+  // this page no longer triggers it (calling business logic off a raw,
+  // client-controlled session_id was a trust-boundary hole: anyone could
+  // hit this URL with a fake id). The webhook can lag payment completion by
+  // a second or two, so this just polls for its work to land, and falls
+  // back to "already processed" copy rather than spinning forever if it
+  // doesn't show up in time — the downloads page itself stays the source of
+  // truth either way.
   useEffect(() => {
-    if (sessionId && !processed) {
-      let cancelled = false;
-      completeCheckout(sessionId).then((added) => {
-        if (cancelled) return;
-        setCount(added);
+    if (!sessionId || processed) return;
+    let cancelled = false;
+    const startedAt = Date.now();
+
+    const poll = async () => {
+      const rows = await getDownloadsForSession(sessionId);
+      if (cancelled) return;
+      if (rows.length > 0) {
+        setCount(rows.length);
         setProcessed(true);
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
+        return;
+      }
+      if (Date.now() - startedAt >= POLL_TIMEOUT_MS) {
+        setProcessed(true); // give up — falls back to "already processed" copy below
+        return;
+      }
+      setTimeout(poll, POLL_INTERVAL_MS);
+    };
+
+    poll();
+    return () => {
+      cancelled = true;
+    };
   }, [sessionId, processed]);
 
   return (

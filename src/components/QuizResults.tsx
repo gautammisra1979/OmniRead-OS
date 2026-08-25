@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useLanguage } from "~/components/LanguageProvider";
 import { getCatalogItems, type CatalogItem } from "~/data/catalog";
+import { buyNow } from "~/data/stripeCheckout";
 
 interface QuizResultsProps {
   selections: Record<string, string>;
@@ -41,6 +42,20 @@ function computeScore(product: CatalogItem, selections: Record<string, string>):
 export function QuizResults({ selections, onStartOver }: QuizResultsProps) {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const [buyingId, setBuyingId] = useState<string | null>(null);
+  const [buyError, setBuyError] = useState("");
+
+  const handleBuyNow = async (product: ScoredProduct) => {
+    setBuyError("");
+    setBuyingId(product.id);
+    try {
+      await buyNow(product.id);
+      // On success buyNow() navigates the browser away.
+    } catch {
+      setBuyError(t("product.buyNowError") ?? "Checkout failed. Please try again.");
+      setBuyingId(null);
+    }
+  };
 
   const recommendations = useMemo<ScoredProduct[]>(() => {
     const items = getCatalogItems();
@@ -170,16 +185,24 @@ export function QuizResults({ selections, onStartOver }: QuizResultsProps) {
                 </p>
                 <button
                   type="button"
-                  className="mt-3 w-full rounded-lg py-2 text-center text-xs font-semibold text-white transition-all hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                  onClick={() => handleBuyNow(product)}
+                  disabled={buyingId === product.id}
+                  className="mt-3 w-full rounded-lg py-2 text-center text-xs font-semibold text-white transition-all hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
                   style={{ backgroundColor: "var(--color-primary,#6366f1)" }}
                   aria-label={`Buy ${product.title} for $${product.price.toFixed(2)}`}
                 >
-                  Buy Now
+                  {buyingId === product.id ? "..." : (t("product.buyNow") ?? "Buy Now")}
                 </button>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {buyError && (
+        <p className="mt-6 text-center text-sm text-red-500" role="alert">
+          {buyError}
+        </p>
       )}
 
       {/* Start Over */}
