@@ -9,8 +9,8 @@ import { MediaPlayer } from "~/components/MediaPlayer";
 import { CrossSellGrid } from "~/components/CrossSellGrid";
 import { CommentTree } from "~/components/CommentTree";
 import { getPromoSettings } from "~/data/promotions";
-import { addToCart, getRecoveryPromoCode } from "~/data/cart";
-import { buyNow } from "~/data/stripeCheckout";
+import { addToCart, getCart, getRecoveryPromoCode } from "~/data/cart";
+import { buyNow, initiateCheckout } from "~/data/stripeCheckout";
 
 export const Route = createFileRoute("/product/$productId")({
   component: RouteComponent,
@@ -49,6 +49,19 @@ function RouteComponent() {
   const [addedToCart, setAddedToCart] = useState(false);
   const [buyNowLoading, setBuyNowLoading] = useState(false);
   const [buyNowError, setBuyNowError] = useState("");
+  const [cartCount, setCartCount] = useState(0);
+  const [checkoutTestLoading, setCheckoutTestLoading] = useState(false);
+  const [checkoutTestError, setCheckoutTestError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    getCart().then((cart) => {
+      if (!cancelled) setCartCount(cart.items.length);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,6 +112,22 @@ function RouteComponent() {
     });
     setAddedToCart(true);
     setTimeout(() => setAddedToCart(false), 3000);
+    const cart = await getCart();
+    setCartCount(cart.items.length);
+  };
+
+  const handleCheckoutTest = async () => {
+    setCheckoutTestError("");
+    setCheckoutTestLoading(true);
+    try {
+      const { redirectUrl } = await initiateCheckout();
+      window.location.href = redirectUrl;
+      // On success this navigates the browser away — no need to clear the
+      // loading state, this component is about to unmount.
+    } catch (err) {
+      setCheckoutTestError(err instanceof Error ? err.message : "Checkout failed. Please try again.");
+      setCheckoutTestLoading(false);
+    }
   };
 
   const handleBuyNow = async () => {
@@ -362,6 +391,30 @@ function RouteComponent() {
                   {buyNowError}
                 </p>
               )}
+
+              {/* TEMP: multi-item Stripe checkout plumbing verification — disposable, remove before ship */}
+              <div className="mt-4 rounded-lg border border-dashed border-orange-500 p-3">
+                <button
+                  type="button"
+                  onClick={handleCheckoutTest}
+                  disabled={checkoutTestLoading || cartCount === 0}
+                  className="w-full rounded-lg border border-dashed border-orange-500 px-4 py-2 text-sm font-semibold text-orange-500 transition-all hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {checkoutTestLoading
+                    ? "..."
+                    : cartCount === 0
+                    ? "TEST: Checkout Full Cart (0 items)"
+                    : `TEST: Checkout Full Cart (${cartCount} items)`}
+                </button>
+                <p className="mt-1 text-center text-[11px] text-orange-500">
+                  TEMP — plumbing verification only
+                </p>
+                {checkoutTestError && (
+                  <p className="mt-2 text-center text-sm text-red-500" role="alert">
+                    {checkoutTestError}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </div>
