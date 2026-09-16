@@ -61,6 +61,28 @@ export const Route = createFileRoute("/api/stripe/webhook")({
   },
 });
 
+/**
+ * NOTE (future modules — RaaS, physical rentals, ticketing): this handler
+ * currently assumes every PaymentIntent behind a checkout session is
+ * auto-captured. That means a checkout.session.completed event is treated
+ * unconditionally as "payment received, grant access" — it writes the
+ * download row and credits the affiliate immediately below.
+ *
+ * If a future module sets payment_intent_data.capture_method: 'manual' on
+ * its checkout sessions (to authorize now, capture later), this handler must
+ * NOT grant access/fulfillment on session completion alone for those
+ * sessions. It will need to inspect the PaymentIntent's status and branch:
+ *   - requires_capture: the charge is authorized but not yet captured — do
+ *     not grant access/fulfillment yet.
+ *   - succeeded: the charge has been captured — safe to grant.
+ *
+ * The mechanism that would eventually drive requires_capture -> succeeded is
+ * a capture-sweep job: it checks Stripe for PaymentIntents sitting in
+ * requires_capture as they approach their authorization deadline and calls
+ * paymentIntents.capture() on them. That job only ever needs the
+ * PaymentIntent ID — never card data, since Stripe holds the card details
+ * entirely.
+ */
 async function handleCheckoutSessionCompleted(event: Stripe.Event): Promise<void> {
   const session = event.data.object as Stripe.Checkout.Session;
 
