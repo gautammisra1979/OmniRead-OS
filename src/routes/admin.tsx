@@ -122,7 +122,25 @@ function AdminDashboard() {
   useEffect(() => {
     if (!hasAdminSession) return;
     const auth = sessionStorage.getItem("omnimeda_admin_auth");
-    if (auth === "true") setAuthenticated(true);
+    if (auth === "true") {
+      setAuthenticated(true);
+      return;
+    }
+    // Apple sign-in (AdminLogin.tsx's handleAppleSignIn) is a full-page
+    // redirect through Apple, not an in-page fetch like the email/password
+    // form — the component that initiated it is gone by the time we land
+    // back here, so it can't call handleAuth() directly the way the
+    // password path does. `?appleAuth=1` on the callbackURL is that same
+    // "the user just explicitly completed an interactive sign-in" signal,
+    // carried across the redirect instead of in memory. Only trusted here
+    // because it's gated on hasAdminSession already being true (a real,
+    // server-verified admin session) — the query param alone proves
+    // nothing.
+    if (new URLSearchParams(window.location.search).get("appleAuth") === "1") {
+      sessionStorage.setItem("omnimeda_admin_auth", "true");
+      setAuthenticated(true);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
   }, [hasAdminSession]);
 
   const handleAuth = () => {

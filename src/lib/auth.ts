@@ -3,6 +3,7 @@ import { anonymous } from "better-auth/plugins";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { drizzle } from "drizzle-orm/neon-http";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
+import { importPKCS8, SignJWT } from "jose";
 import { sql } from "~/db";
 import * as authSchema from "~/db/auth-schema";
 import { mergeAnonymousUserData } from "~/lib/mergeAnonymousUser";
@@ -45,6 +46,83 @@ if (!adminClaimToken) {
 // databaseHooks comment below for why a header, not a field, is required.
 export const ADMIN_CLAIM_TOKEN_HEADER = "x-admin-claim-token";
 
+/**
+ * Sign in with Apple's client secret isn't a static string like every other
+ * provider's — Apple requires a short-lived JWT, signed with the Services
+ * ID's own `.p8` private key, in its place. This is Better Auth's own
+ * documented helper for producing it
+ * (https://better-auth.com/docs/authentication/apple) — it isn't a package
+ * export, it's a snippet their docs hand you to paste into your own config
+ * — copied here verbatim rather than hand-rolled. It's called fresh from
+ * inside the `apple` provider factory below (not memoized), so every server
+ * boot / cold start mints a new 180-day-lived token, which is what keeps it
+ * "rotated" without a background job — 180 days is comfortably under
+ * Apple's hard 15,777,000-second (~6 month) ceiling on how far in the
+ * future this JWT's expiry may be set. The one scenario that isn't covered:
+ * a deployment that runs uninterrupted with no redeploy or cold start for
+ * 180+ days would need an explicit restart to mint a fresh one.
+ */
+async function generateAppleClientSecret(
+  clientId: string,
+  teamId: string,
+  keyId: string,
+  privateKey: string,
+): Promise<string> {
+  const key = await importPKCS8(privateKey, "ES256");
+  const now = Math.floor(Date.now() / 1000);
+  return new SignJWT({})
+    .setProtectedHeader({ alg: "ES256", kid: keyId })
+    .setIssuer(teamId)
+    .setSubject(clientId)
+    .setAudience("https://appleid.apple.com")
+    .setIssuedAt(now)
+    .setExpirationTime(now + 180 * 24 * 60 * 60)
+    .sign(key);
+}
+
+const appleClientId = process.env.APPLE_CLIENT_ID;
+const appleTeamId = process.env.APPLE_TEAM_ID;
+const appleKeyId = process.env.APPLE_KEY_ID;
+const applePrivateKey = process.env.APPLE_PRIVATE_KEY;
+
+/**
+ * Sign in with Apple is fully opt-in — same BYO-credentials shape as
+ * stripe() (src/lib/stripe.ts): a storeowner who hasn't paid for an Apple
+ * Developer account shouldn't see a broken or missing button, just no
+ * button at all. APPLE_CLIENT_ID (the Services ID — the one of the four
+ * values that isn't itself a secret) is the sentinel: unset means Apple
+ * sign-in hasn't been touched at all, so `socialProviders.apple` is omitted
+ * entirely below and AdminLogin.tsx's Apple button simply doesn't render —
+ * no error, no log, graceful opt-out by omission.
+ *
+ * Once that sentinel IS set, the other three are load-bearing — there's no
+ * such thing as "half-configured" Apple sign-in. Unlike ADMIN_EMAIL /
+ * ADMIN_CLAIM_TOKEN above, though, this doesn't throw: a storeowner
+ * mid-setup (e.g. they've pasted the Services ID but not yet downloaded the
+ * .p8 key) shouldn't take the entire site down over a feature nobody else
+ * depends on. Instead it logs which var(s) are missing and disables just
+ * Apple — every other sign-in path keeps working.
+ */
+function resolveAppleConfigured(): boolean {
+  if (!appleClientId) return false;
+  const missing = [
+    !appleTeamId && "APPLE_TEAM_ID",
+    !appleKeyId && "APPLE_KEY_ID",
+    !applePrivateKey && "APPLE_PRIVATE_KEY",
+  ].filter((name): name is string => !!name);
+  if (missing.length > 0) {
+    console.error(
+      `[auth] APPLE_CLIENT_ID is set but ${missing.join(", ")} ${missing.length > 1 ? "are" : "is"} missing. ` +
+        "Sign in with Apple needs all four env vars together, so it's disabled until the rest are set — " +
+        "add them to .env.local (dev) and the Vercel project's environment variables (prod).",
+    );
+    return false;
+  }
+  return true;
+}
+
+export const appleConfigured = resolveAppleConfigured();
+
 function isReservedAdminEmail(email: string): boolean {
   const normalized = email.toLowerCase();
   return (
@@ -84,6 +162,15 @@ function getTrustedOrigins(): string[] {
     }
   }
 
+  if (appleConfigured) {
+    // Sign in with Apple is the one provider that answers the OAuth
+    // callback as a top-level form POST from Apple's own origin
+    // (responseMode: "form_post" — see @better-auth/core's apple.ts),
+    // rather than a redirect we initiate. Better Auth's own docs list this
+    // origin in trustedOrigins for exactly that reason.
+    origins.add("https://appleid.apple.com");
+  }
+
   return Array.from(origins);
 }
 
@@ -98,6 +185,26 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
   },
+  // Deliberately NOT setting account.accountLinking.updateUserInfoOnLink or
+  // apple's own overrideUserInfoOnSignIn: Apple only sends the user's name
+  // (and, per Apple's docs, reliably sends email) on the very first
+  // authorization — there is no endpoint to fetch either again later. The
+  // defaults below leave that first-callback name/email on the user row
+  // alone on every subsequent Apple sign-in, rather than risking it being
+  // overwritten with blanks once Apple stops including them.
+  socialProviders: appleConfigured
+    ? {
+        apple: async () => ({
+          clientId: appleClientId!,
+          clientSecret: await generateAppleClientSecret(
+            appleClientId!,
+            appleTeamId!,
+            appleKeyId!,
+            applePrivateKey!,
+          ),
+        }),
+      }
+    : undefined,
   session: {
     expiresIn: ANONYMOUS_SESSION_EXPIRES_IN_SECONDS,
   },
@@ -138,6 +245,17 @@ export const auth = betterAuth({
     // cleaned up when their session expires — no TTL/cron job exists yet.
     // The `anonymous` plugin itself has no session-expiry option; the 30-day
     // expiry above (top-level `session.expiresIn`) applies to it too.
+    //
+    // Confirmed against source (node_modules/better-auth/dist/plugins/
+    // anonymous/index.mjs) that onLinkAccount fires for Apple sign-in too,
+    // not just email/password: its hook matcher matches any path starting
+    // with "/callback" or "/oauth2/callback", which is exactly the social
+    // OAuth callback route ("/callback/:id" — see
+    // node_modules/better-auth/dist/api/routes/callback.mjs) that Apple's
+    // sign-in completes through. The matcher itself is provider-agnostic —
+    // it only inspects whether a new (non-anonymous) session was just
+    // issued while an anonymous one was active — so no Apple-specific
+    // wiring was needed here.
     anonymous({
       onLinkAccount: async ({ anonymousUser, newUser }) => {
         await mergeAnonymousUserData(anonymousUser.user.id, newUser.user.id);

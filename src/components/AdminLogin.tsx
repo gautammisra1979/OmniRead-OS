@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import { authClient } from "~/lib/auth-client";
+import { checkAppleSignInEnabled } from "~/lib/checkAppleSignInEnabled";
 
 interface AdminLoginProps {
   onAuthenticated: () => void;
@@ -11,7 +12,22 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Defaults to hidden: the server is the only side that knows whether
+  // APPLE_CLIENT_ID etc. are set (see appleConfigured in src/lib/auth.ts),
+  // so the button stays hidden until that check comes back rather than
+  // flashing then disappearing for a storeowner who hasn't configured it.
+  const [appleEnabled, setAppleEnabled] = useState(false);
   const { t } = useLanguage();
+
+  useEffect(() => {
+    let cancelled = false;
+    checkAppleSignInEnabled().then((enabled) => {
+      if (!cancelled) setAppleEnabled(enabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -28,6 +44,19 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps) {
       setError(t("admin.login.error"));
       setPassword("");
     }
+  };
+
+  const handleAppleSignIn = () => {
+    // Full-page redirect through Apple — there's no local dev callback for
+    // this (Apple doesn't support localhost/non-HTTPS redirect URIs at
+    // all), so this can only be exercised on a real HTTPS deployment.
+    // callbackURL carries a query flag admin.tsx looks for on return, since
+    // OAuth's redirect-back is a fresh page load with no in-memory state to
+    // call onAuthenticated() on directly (see the comment on that effect).
+    authClient.signIn.social({
+      provider: "apple",
+      callbackURL: `${window.location.origin}/admin?appleAuth=1`,
+    });
   };
 
   return (
@@ -127,6 +156,42 @@ export function AdminLogin({ onAuthenticated }: AdminLoginProps) {
               {t("admin.login.button")}
             </button>
           </form>
+
+          {appleEnabled && (
+            <>
+              <div className="my-6 flex items-center gap-3" aria-hidden="true">
+                <div className="h-px flex-1" style={{ backgroundColor: "var(--color-border)" }} />
+                <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+                  {t("admin.login.or")}
+                </span>
+                <div className="h-px flex-1" style={{ backgroundColor: "var(--color-border)" }} />
+              </div>
+
+              {/*
+                Per Apple's Sign in with Apple Human Interface Guidelines:
+                the official black mark, unmodified colors/proportions, not
+                restyled to match this app's own --color-primary button
+                system. https://developer.apple.com/design/human-interface-guidelines/sign-in-with-apple
+              */}
+              <button
+                type="button"
+                onClick={handleAppleSignIn}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-black px-4 py-3 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+              >
+                <svg
+                  width="17"
+                  height="17"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                  className="shrink-0"
+                >
+                  <path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.06 2.09-.98 3.935-.98 1.831 0 2.35.98 3.96.941 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.036-.013-3.19-1.226-3.216-4.85-.026-3.03 2.473-4.485 2.586-4.552-1.418-2.087-3.622-2.32-4.39-2.372-2.01-.16-3.69 1.083-4.6 1.083zM15.53 3.83c.843-1.012 1.4-2.426 1.245-3.83-1.207.052-2.665.805-3.532 1.818-.78.896-1.454 2.338-1.271 3.714 1.338.104 2.71-.688 3.559-1.701z" />
+                </svg>
+                {t("admin.login.appleSignIn")}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
