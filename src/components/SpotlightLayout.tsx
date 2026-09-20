@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { getCatalogItems } from "~/db/queries";
+import { getCatalogItems, getStorefrontLayout } from "~/db/queries";
 import type { CatalogItem } from "~/data/catalog";
 import { getAllProducts, applyRecoveryDiscount, type Product } from "~/data/products";
-import { getFeaturedProductId, getLatestCatalogItem } from "~/data/layoutMatrix";
+import { getLatestCatalogItem } from "~/data/layoutMatrix";
 import {
   getPromoSettings,
   calculateDiscountedPrice,
@@ -23,6 +23,8 @@ export function SpotlightLayout() {
   const [recoveryPromo, setRecoveryPromo] = useState<{ code: string; discount: number } | null>(null);
   const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [productsLoaded, setProductsLoaded] = useState(false);
+  const [featuredId, setFeaturedId] = useState<string | null>(null);
+  const [featuredIdLoaded, setFeaturedIdLoaded] = useState(false);
 
   // DB-backed catalog items (Step 26 Tier B) — was a synchronous localStorage read.
   useEffect(() => {
@@ -64,9 +66,21 @@ export function SpotlightLayout() {
     };
   }, [promoSettings]);
 
-  if (!catalogLoaded || !productsLoaded) return null;
+  // DB-backed featured product id — was a synchronous localStorage read.
+  useEffect(() => {
+    let cancelled = false;
+    getStorefrontLayout().then((settings) => {
+      if (cancelled) return;
+      setFeaturedId(settings.featuredProductId);
+      setFeaturedIdLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const featuredId = getFeaturedProductId();
+  if (!catalogLoaded || !productsLoaded || !featuredIdLoaded) return null;
+
   let featuredProduct: Product | null = null;
 
   if (featuredId) {

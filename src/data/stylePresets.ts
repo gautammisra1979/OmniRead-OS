@@ -1,8 +1,9 @@
 /**
  * Style Presets — Border/Shadow & Typography
  *
- * Provides presets for card styling and typography that extend
- * the theme system. Stored in localStorage.
+ * Preset maps, types, and the pure applyStylePresets() DOM side effect live
+ * here. Persistence is DB-backed — see getStylePresets/updateStylePresets
+ * in src/db/queries.ts.
  */
 
 export type BorderPreset = "sharp" | "rounded" | "elevated";
@@ -13,9 +14,7 @@ export interface StylePresets {
   typography: TypographyPreset;
 }
 
-const STYLE_KEY = "omnimedos_style_presets";
-
-const DEFAULT_PRESETS: StylePresets = {
+export const DEFAULT_PRESETS: StylePresets = {
   border: "sharp",
   typography: "classic",
 };
@@ -65,25 +64,6 @@ export const TYPOGRAPHY_PRESETS: Record<TypographyPreset, { name: string; fontFa
   },
 };
 
-export function getStylePresets(): StylePresets {
-  if (typeof window === "undefined") return { ...DEFAULT_PRESETS };
-  try {
-    const raw = localStorage.getItem(STYLE_KEY);
-    if (raw) return { ...DEFAULT_PRESETS, ...JSON.parse(raw) };
-  } catch {
-    // ignore
-  }
-  return { ...DEFAULT_PRESETS };
-}
-
-export function saveStylePresets(presets: StylePresets): void {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(STYLE_KEY, JSON.stringify(presets));
-    // Dispatch event so components can react
-    window.dispatchEvent(new CustomEvent("style-presets-changed", { detail: presets }));
-  }
-}
-
 export function applyStylePresets(presets: StylePresets): void {
   if (typeof window === "undefined") return;
   const root = document.documentElement;
@@ -113,9 +93,7 @@ export interface AnnouncementConfig {
   shippingMessage: string;
 }
 
-const ANNOUNCEMENT_KEY = "omnimedos_announcement";
-
-const DEFAULT_ANNOUNCEMENT: AnnouncementConfig = {
+export const DEFAULT_ANNOUNCEMENT: AnnouncementConfig = {
   enabled: true,
   text: "Free shipping on orders over $50!",
   type: "shipping",
@@ -125,20 +103,3 @@ const DEFAULT_ANNOUNCEMENT: AnnouncementConfig = {
   shippingThreshold: 50,
   shippingMessage: "Free shipping on orders over ${threshold}!",
 };
-
-export function getAnnouncementConfig(): AnnouncementConfig {
-  if (typeof window === "undefined") return { ...DEFAULT_ANNOUNCEMENT };
-  try {
-    const raw = localStorage.getItem(ANNOUNCEMENT_KEY);
-    if (raw) return { ...DEFAULT_ANNOUNCEMENT, ...JSON.parse(raw) };
-  } catch {
-    // ignore
-  }
-  return { ...DEFAULT_ANNOUNCEMENT };
-}
-
-export function saveAnnouncementConfig(config: AnnouncementConfig): void {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(ANNOUNCEMENT_KEY, JSON.stringify(config));
-  }
-}

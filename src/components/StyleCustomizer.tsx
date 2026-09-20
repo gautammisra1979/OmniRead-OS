@@ -1,39 +1,52 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import {
-  getStylePresets,
-  saveStylePresets,
   applyStylePresets,
   BORDER_PRESETS,
   TYPOGRAPHY_PRESETS,
+  DEFAULT_PRESETS,
+  DEFAULT_ANNOUNCEMENT,
   type BorderPreset,
   type TypographyPreset,
   type AnnouncementConfig,
-  getAnnouncementConfig,
-  saveAnnouncementConfig,
 } from "~/data/stylePresets";
+import { getStylePresets, updateStylePresets } from "~/db/queries";
 
 export function StyleCustomizer() {
   const { t } = useLanguage();
-  const [presets, setPresets] = useState(getStylePresets());
+  const [presets, setPresets] = useState(DEFAULT_PRESETS);
   const [saved, setSaved] = useState(false);
+
+  // DB-backed (Step 26) — was a synchronous localStorage read.
+  useEffect(() => {
+    let cancelled = false;
+    getStylePresets().then((bundle) => {
+      if (cancelled) return;
+      setPresets({ border: bundle.border, typography: bundle.typography });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleBorderChange = useCallback((border: BorderPreset) => {
     const next = { ...presets, border };
     setPresets(next);
-    saveStylePresets(next);
     applyStylePresets(next);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    updateStylePresets({ data: { border } }).then(() => {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    });
   }, [presets]);
 
   const handleTypoChange = useCallback((typography: TypographyPreset) => {
     const next = { ...presets, typography };
     setPresets(next);
-    saveStylePresets(next);
     applyStylePresets(next);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    updateStylePresets({ data: { typography } }).then(() => {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    });
   }, [presets]);
 
   return (
@@ -126,21 +139,29 @@ export function StyleCustomizer() {
 
 export function AnnouncementConfigSection() {
   const { t } = useLanguage();
-  const [config, setConfig] = useState<AnnouncementConfig>(getAnnouncementConfig());
+  const [config, setConfig] = useState<AnnouncementConfig>(DEFAULT_ANNOUNCEMENT);
   const [saved, setSaved] = useState(false);
 
+  // DB-backed (Step 26) — was a synchronous localStorage read.
   useEffect(() => {
-    setConfig(getAnnouncementConfig());
+    let cancelled = false;
+    getStylePresets().then((bundle) => {
+      if (!cancelled) setConfig(bundle.announcement);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleSave = useCallback(() => {
-    saveAnnouncementConfig(config);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-    // Trigger re-render of announcement bar
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("announcement-changed", { detail: config }));
-    }
+    updateStylePresets({ data: { announcement: config } }).then(() => {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      // Trigger re-render of announcement bar
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("announcement-changed", { detail: config }));
+      }
+    });
   }, [config]);
 
   return (

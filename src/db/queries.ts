@@ -2,8 +2,18 @@ import { createServerFn } from "@tanstack/react-start";
 import { count, eq, max, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
-import { catalogItems, type CatalogItemRow } from "~/db/schema";
+import {
+  catalogItems,
+  storefrontLayout,
+  stylePresets,
+  type CatalogItemRow,
+  type StorefrontLayoutRow,
+  type StylePresetsRow,
+  type NewStylePresetsRow,
+} from "~/db/schema";
 import type { CatalogItem, CatalogStatus } from "~/data/catalog";
+import type { LayoutType } from "~/data/layoutMatrix";
+import { DEFAULT_PRESETS, DEFAULT_ANNOUNCEMENT, type BorderPreset, type TypographyPreset, type AnnouncementConfig } from "~/data/stylePresets";
 import { requireAdmin } from "~/lib/requireAdmin";
 
 /**
@@ -262,4 +272,143 @@ export const updateCatalogPromoOverride = createServerFn({ method: "POST" })
       .update(catalogItems)
       .set({ promoOverride: data.promoOverride })
       .where(eq(catalogItems.id, data.id));
+  });
+
+/* ─── Storefront Layout (single global row, same shape as promoSettings/licenseSettings) ─── */
+
+const STOREFRONT_LAYOUT_ID = "global";
+
+export interface StorefrontLayoutSettings {
+  activeLayout: LayoutType;
+  featuredProductId: string | null;
+}
+
+function rowToStorefrontLayout(row: StorefrontLayoutRow): StorefrontLayoutSettings {
+  return {
+    activeLayout: row.activeLayout as LayoutType,
+    featuredProductId: row.featuredProductId,
+  };
+}
+
+export const getStorefrontLayout = createServerFn({ method: "GET" }).handler(
+  async (): Promise<StorefrontLayoutSettings> => {
+    const database = db();
+    const rows = await database
+      .select()
+      .from(storefrontLayout)
+      .where(eq(storefrontLayout.id, STOREFRONT_LAYOUT_ID));
+    if (rows[0]) return rowToStorefrontLayout(rows[0]);
+
+    await database
+      .insert(storefrontLayout)
+      .values({ id: STOREFRONT_LAYOUT_ID })
+      .onConflictDoNothing();
+    return { activeLayout: "magazine", featuredProductId: null };
+  },
+);
+
+export const updateStorefrontLayout = createServerFn({ method: "POST" })
+  .validator(
+    (input: { activeLayout?: LayoutType; featuredProductId?: string | null }) => input,
+  )
+  .handler(async ({ data }): Promise<void> => {
+    await requireAdmin();
+    const set: Partial<StorefrontLayoutRow> = {};
+    if (data.activeLayout !== undefined) set.activeLayout = data.activeLayout;
+    if (data.featuredProductId !== undefined) set.featuredProductId = data.featuredProductId;
+    if (Object.keys(set).length === 0) return;
+
+    await db()
+      .insert(storefrontLayout)
+      .values({ id: STOREFRONT_LAYOUT_ID, ...set })
+      .onConflictDoUpdate({ target: storefrontLayout.id, set });
+  });
+
+/* ─── Style Presets + Announcement Bar (single global row — they already
+ *     share one file/one admin UI component, so they share one table too) ─── */
+
+const STYLE_PRESETS_ID = "global";
+
+export interface StylePresetsBundle {
+  border: BorderPreset;
+  typography: TypographyPreset;
+  announcement: AnnouncementConfig;
+}
+
+function rowToStylePresetsBundle(row: StylePresetsRow): StylePresetsBundle {
+  return {
+    border: row.border as BorderPreset,
+    typography: row.typography as TypographyPreset,
+    announcement: {
+      enabled: row.announcementEnabled,
+      text: row.announcementText,
+      type: row.announcementType as AnnouncementConfig["type"],
+      dismissible: row.announcementDismissible,
+      linkUrl: row.announcementLinkUrl,
+      linkText: row.announcementLinkText,
+      shippingThreshold: row.announcementShippingThreshold,
+      shippingMessage: row.announcementShippingMessage,
+    },
+  };
+}
+
+export const getStylePresets = createServerFn({ method: "GET" }).handler(
+  async (): Promise<StylePresetsBundle> => {
+    const database = db();
+    const rows = await database
+      .select()
+      .from(stylePresets)
+      .where(eq(stylePresets.id, STYLE_PRESETS_ID));
+    if (rows[0]) return rowToStylePresetsBundle(rows[0]);
+
+    await database
+      .insert(stylePresets)
+      .values({
+        id: STYLE_PRESETS_ID,
+        announcementText: DEFAULT_ANNOUNCEMENT.text,
+        announcementShippingMessage: DEFAULT_ANNOUNCEMENT.shippingMessage,
+      })
+      .onConflictDoNothing();
+    return {
+      border: DEFAULT_PRESETS.border,
+      typography: DEFAULT_PRESETS.typography,
+      announcement: { ...DEFAULT_ANNOUNCEMENT },
+    };
+  },
+);
+
+export const updateStylePresets = createServerFn({ method: "POST" })
+  .validator(
+    (input: {
+      border?: BorderPreset;
+      typography?: TypographyPreset;
+      announcement?: AnnouncementConfig;
+    }) => input,
+  )
+  .handler(async ({ data }): Promise<void> => {
+    await requireAdmin();
+    const set: Partial<NewStylePresetsRow> = {};
+    if (data.border !== undefined) set.border = data.border;
+    if (data.typography !== undefined) set.typography = data.typography;
+    if (data.announcement) {
+      set.announcementEnabled = data.announcement.enabled;
+      set.announcementText = data.announcement.text;
+      set.announcementType = data.announcement.type;
+      set.announcementDismissible = data.announcement.dismissible;
+      set.announcementLinkUrl = data.announcement.linkUrl;
+      set.announcementLinkText = data.announcement.linkText;
+      set.announcementShippingThreshold = data.announcement.shippingThreshold;
+      set.announcementShippingMessage = data.announcement.shippingMessage;
+    }
+    if (Object.keys(set).length === 0) return;
+
+    await db()
+      .insert(stylePresets)
+      .values({
+        id: STYLE_PRESETS_ID,
+        announcementText: DEFAULT_ANNOUNCEMENT.text,
+        announcementShippingMessage: DEFAULT_ANNOUNCEMENT.shippingMessage,
+        ...set,
+      })
+      .onConflictDoUpdate({ target: stylePresets.id, set });
   });

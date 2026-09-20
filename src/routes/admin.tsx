@@ -74,14 +74,15 @@ import { StyleCustomizer, AnnouncementConfigSection } from "~/components/StyleCu
 import { MembershipConfigSection, CatalogAccessControl } from "~/components/CheckoutUpsells";
 import { DisclaimerConfigSection, InfoModalConfigSection } from "~/components/DisclaimerModal";
 import { type CatalogItem, type CatalogStatus } from "~/data/catalog";
-import { getCatalogItems, updateCatalogStatus, updateCatalogRating, updateCatalogPromoOverride } from "~/db/queries";
 import {
-  getActiveLayout,
-  setActiveLayout,
-  getFeaturedProductId,
-  setFeaturedProductId,
-  type LayoutType,
-} from "~/data/layoutMatrix";
+  getCatalogItems,
+  updateCatalogStatus,
+  updateCatalogRating,
+  updateCatalogPromoOverride,
+  getStorefrontLayout,
+  updateStorefrontLayout,
+} from "~/db/queries";
+import { type LayoutType } from "~/data/layoutMatrix";
 
 export const Route = createFileRoute("/admin")({
   component: AdminDashboard,
@@ -1950,9 +1951,9 @@ function CatalogStatusManagement() {
 /* ─── Storefront Layout Settings ─── */
 function StorefrontLayoutSettings() {
   const { t } = useLanguage();
-  const [layout, setLayoutState] = useState<LayoutType>(getActiveLayout());
+  const [layout, setLayoutState] = useState<LayoutType>("magazine");
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
-  const [featuredId, setFeaturedIdState] = useState<string | null>(getFeaturedProductId());
+  const [featuredId, setFeaturedIdState] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -1965,18 +1966,33 @@ function StorefrontLayoutSettings() {
     };
   }, []);
 
+  // DB-backed (Step 26) — was two synchronous localStorage reads.
+  useEffect(() => {
+    let cancelled = false;
+    getStorefrontLayout().then((settings) => {
+      if (cancelled) return;
+      setLayoutState(settings.activeLayout);
+      setFeaturedIdState(settings.featuredProductId);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleLayoutChange = useCallback((newLayout: LayoutType) => {
     setLayoutState(newLayout);
-    setActiveLayout(newLayout);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    updateStorefrontLayout({ data: { activeLayout: newLayout } }).then(() => {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    });
   }, []);
 
   const handleFeaturedChange = useCallback((id: string) => {
     setFeaturedIdState(id);
-    setFeaturedProductId(id);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    updateStorefrontLayout({ data: { featuredProductId: id } }).then(() => {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    });
   }, []);
 
   const allProducts = catalog.length > 0 ? catalog : [];

@@ -321,6 +321,45 @@ export type LicenseSettingsRow = typeof licenseSettings.$inferSelect;
 export type NewLicenseSettingsRow = typeof licenseSettings.$inferInsert;
 
 /**
+ * Single global, admin-managed storefront layout setting. Same shape as
+ * promoSettings/licenseSettings — no userId, one row keyed by the fixed
+ * "global" id. Replaces the old localStorage-only src/data/layoutMatrix.ts.
+ */
+export const storefrontLayout = pgTable("storefront_layout", {
+  id: text("id").primaryKey(),
+  activeLayout: text("active_layout").notNull().default("magazine"), // "classic" | "spotlight" | "magazine"
+  featuredProductId: text("featured_product_id"),
+});
+
+export type StorefrontLayoutRow = typeof storefrontLayout.$inferSelect;
+export type NewStorefrontLayoutRow = typeof storefrontLayout.$inferInsert;
+
+/**
+ * Single global, admin-managed style + announcement-bar settings row. Same
+ * shape as promoSettings/licenseSettings — no userId, one row keyed by the
+ * fixed "global" id. Replaces the old localStorage-only
+ * src/data/stylePresets.ts. Border/typography presets and the announcement
+ * bar config live in one table here, matching how they already share one
+ * file and one admin UI component (StyleCustomizer.tsx) today.
+ */
+export const stylePresets = pgTable("style_presets", {
+  id: text("id").primaryKey(),
+  border: text("border").notNull().default("sharp"), // "sharp" | "rounded" | "elevated"
+  typography: text("typography").notNull().default("classic"), // "modern" | "classic" | "minimal"
+  announcementEnabled: boolean("announcement_enabled").notNull().default(true),
+  announcementText: text("announcement_text").notNull(),
+  announcementType: text("announcement_type").notNull().default("shipping"), // "info" | "sale" | "shipping" | "warning"
+  announcementDismissible: boolean("announcement_dismissible").notNull().default(true),
+  announcementLinkUrl: text("announcement_link_url").notNull().default(""),
+  announcementLinkText: text("announcement_link_text").notNull().default("Learn More"),
+  announcementShippingThreshold: doublePrecision("announcement_shipping_threshold").notNull().default(50),
+  announcementShippingMessage: text("announcement_shipping_message").notNull(),
+});
+
+export type StylePresetsRow = typeof stylePresets.$inferSelect;
+export type NewStylePresetsRow = typeof stylePresets.$inferInsert;
+
+/**
  * Single global admin-credentials row (legacy passcode path — see
  * src/lib/requireAdmin.ts). Same shape as promoSettings/licenseSettings — no
  * userId, one row keyed by the fixed "global" id.

@@ -120,6 +120,13 @@
       "when": 1787640683007,
       "tag": "0016_ancient_naoko",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789889142931,
+      "tag": "0017_true_rictor",
+      "breakpoints": true
     }
   ]
 }

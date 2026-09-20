@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { getAnnouncementConfig, type AnnouncementConfig } from "~/data/stylePresets";
+import { DEFAULT_ANNOUNCEMENT, type AnnouncementConfig } from "~/data/stylePresets";
+import { getStylePresets } from "~/db/queries";
 
 const ANNOUNCEMENT_STYLES: Record<AnnouncementConfig["type"], { bg: string; text: string; icon: string }> = {
   info: { bg: "var(--color-primary,#6366f1)", text: "#ffffff", icon: "ℹ️" },
@@ -11,16 +12,31 @@ const ANNOUNCEMENT_STYLES: Record<AnnouncementConfig["type"], { bg: string; text
 
 export function AnnouncementBar() {
   const { t } = useLanguage();
-  const [config, setConfig] = useState<AnnouncementConfig>(getAnnouncementConfig());
+  const [config, setConfig] = useState<AnnouncementConfig>(DEFAULT_ANNOUNCEMENT);
+  const [loaded, setLoaded] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
+  // DB-backed (Step 26) — was a synchronous localStorage read, both on
+  // mount and on the admin's "announcement-changed" broadcast.
   useEffect(() => {
+    let cancelled = false;
+    const fetchConfig = () => {
+      getStylePresets().then((bundle) => {
+        if (cancelled) return;
+        setConfig(bundle.announcement);
+        setLoaded(true);
+      });
+    };
+    fetchConfig();
     const handler = () => {
-      setConfig(getAnnouncementConfig());
       setDismissed(false);
+      fetchConfig();
     };
     window.addEventListener("announcement-changed", handler);
-    return () => window.removeEventListener("announcement-changed", handler);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("announcement-changed", handler);
+    };
   }, []);
 
   // Check if dismissed in session
@@ -38,7 +54,7 @@ export function AnnouncementBar() {
     }
   }, []);
 
-  if (!config.enabled || dismissed) return null;
+  if (!loaded || !config.enabled || dismissed) return null;
 
   const style = ANNOUNCEMENT_STYLES[config.type];
   const shippingMsg = config.shippingMessage.replace("{threshold}", `$${config.shippingThreshold}`);
