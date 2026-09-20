@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useLanguage } from "~/components/LanguageProvider";
 import { LicenseGate } from "~/components/LicenseGate";
-import { getCatalogItems } from "~/data/catalog";
+import { getCatalogItems } from "~/db/queries";
+import { type CatalogItem } from "~/data/catalog";
 import { getProgressEntries, getReviews, type ReviewData } from "~/data/progress";
 import { ProgressTracker } from "~/components/ProgressTracker";
 import { NotificationSettings } from "~/components/NotificationSettings";
@@ -18,8 +19,18 @@ function ChallengePage() {
   const [activeProductId, setActiveProductId] = useState<string | null>(null);
   const [reviewProductId, setReviewProductId] = useState<string | null>(null);
   const [reviewRefresh, setReviewRefresh] = useState(0);
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
 
-  const catalog = getCatalogItems();
+  useEffect(() => {
+    let cancelled = false;
+    getCatalogItems().then((items) => {
+      if (!cancelled) setCatalog(items);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const progressEntries = getProgressEntries();
   const trackedProductIds = new Set(progressEntries.map((e) => e.productId));
   const trackedProducts = progressEntries

@@ -10,11 +10,17 @@ export function CheckoutUpsells() {
   const [acceptedIds, setAcceptedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    const generated = generateUpsellOffers();
-    if (generated.length > 0) {
-      setOffers(generated);
-      saveUpsellOffers(generated);
-    }
+    let cancelled = false;
+    generateUpsellOffers().then((generated) => {
+      if (cancelled) return;
+      if (generated.length > 0) {
+        setOffers(generated);
+        saveUpsellOffers(generated);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleAccept = useCallback((id: string) => {

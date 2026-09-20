@@ -73,7 +73,8 @@ import { StorageConsole } from "~/components/StorageConsole";
 import { StyleCustomizer, AnnouncementConfigSection } from "~/components/StyleCustomizer";
 import { MembershipConfigSection, CatalogAccessControl } from "~/components/CheckoutUpsells";
 import { DisclaimerConfigSection, InfoModalConfigSection } from "~/components/DisclaimerModal";
-import { getCatalogItems, updateCatalogStatus, updateCatalogRating, type CatalogItem, type CatalogStatus } from "~/data/catalog";
+import { type CatalogItem, type CatalogStatus } from "~/data/catalog";
+import { getCatalogItems, updateCatalogStatus, updateCatalogRating, updateCatalogPromoOverride } from "~/db/queries";
 import {
   getActiveLayout,
   setActiveLayout,
@@ -1324,20 +1325,48 @@ function AffiliateAdminSection() {
 
 /* ─── Promotions & Discounts Admin Section ─── */
 
+function promoOverrideEquals(
+  a: CatalogItem["promoOverride"] | undefined,
+  b: CatalogItem["promoOverride"] | undefined,
+): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return (
+    a.hasOverride === b.hasOverride &&
+    a.overrideType === b.overrideType &&
+    a.overrideValue === b.overrideValue
+  );
+}
+
 function PromotionsAdminSection() {
   const { t } = useLanguage();
   const [settings, setSettings] = useState<PromoSettings>(DEFAULT_PROMO_SETTINGS);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [bulkCatalogs, setBulkCatalogs] = useState(getCatalogItems());
+  const [bulkCatalogs, setBulkCatalogs] = useState<CatalogItem[]>([]);
+  // Snapshot of promoOverride per item as last loaded from Neon — diffed
+  // against bulkCatalogs on save so only rows the editor actually touched
+  // get written, instead of a full-array overwrite that could stomp on
+  // concurrent admin edits to other fields on the same rows.
+  const [originalOverrides, setOriginalOverrides] = useState<Record<string, CatalogItem["promoOverride"]>>({});
   const [bulkRefresh, setBulkRefresh] = useState(0);
   const [bulkOverrideActive, setBulkOverrideActive] = useState(false);
   const [bulkOverrideType, setBulkOverrideType] = useState<"percentage" | "flat" | "fixed">("percentage");
   const [bulkOverrideValue, setBulkOverrideValue] = useState("20");
 
   useEffect(() => {
-    getPromoSettings().then(setSettings);
-    setBulkCatalogs(getCatalogItems());
+    let cancelled = false;
+    getPromoSettings().then((s) => {
+      if (!cancelled) setSettings(s);
+    });
+    getCatalogItems().then((items) => {
+      if (cancelled) return;
+      setBulkCatalogs(items);
+      setOriginalOverrides(Object.fromEntries(items.map((i) => [i.id, i.promoOverride])));
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [bulkRefresh]);
 
   const handleSaveSettings = useCallback(async () => {
@@ -1385,19 +1414,23 @@ function PromotionsAdminSection() {
     );
   }, [bulkOverrideActive, bulkOverrideType, bulkOverrideValue]);
 
-  const handleSaveBulk = useCallback(() => {
-    if (typeof window === "undefined") return;
-    const existing = getCatalogItems();
-    const updated = existing.map((existingItem) => {
-      const bulkItem = bulkCatalogs.find((b) => b.id === existingItem.id);
-      if (bulkItem) return { ...existingItem, promoOverride: bulkItem.promoOverride };
-      return existingItem;
-    });
-    localStorage.setItem("omnimedos_catalog", JSON.stringify(updated));
+  const handleSaveBulk = useCallback(async () => {
+    // Field-scoped, per-row writes against Neon — only rows whose
+    // promoOverride actually changed here, and only that one field, so a
+    // stale bulkCatalogs snapshot can't clobber concurrent admin edits (e.g.
+    // status/rating changes from CatalogStatusManagement) to the same rows.
+    const changed = bulkCatalogs.filter(
+      (item) => !promoOverrideEquals(item.promoOverride, originalOverrides[item.id]),
+    );
+    await Promise.all(
+      changed.map((item) =>
+        updateCatalogPromoOverride({ data: { id: item.id, promoOverride: item.promoOverride ?? null } }),
+      ),
+    );
     setBulkRefresh((k) => k + 1);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
-  }, [bulkCatalogs]);
+  }, [bulkCatalogs, originalOverrides]);
 
   return (
     <div className="mx-auto mt-10 max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
@@ -1774,23 +1807,32 @@ function CommentModerationSection() {
 function CatalogStatusManagement() {
   const { t } = useLanguage();
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [saved, setSaved] = useState("");
 
   useEffect(() => {
-    setCatalog(getCatalogItems());
-  }, [refreshKey]);
+    let cancelled = false;
+    getCatalogItems().then((items) => {
+      if (!cancelled) setCatalog(items);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleStatusChange = useCallback((id: string, status: CatalogStatus) => {
-    updateCatalogStatus(id, status);
-    setSaved(`Status updated for item ${id}`);
-    setRefreshKey((k) => k + 1);
-    setTimeout(() => setSaved(""), 2000);
+    updateCatalogStatus({ data: { id, status } })
+      .then(() => getCatalogItems())
+      .then((items) => {
+        setCatalog(items);
+        setSaved(`Status updated for item ${id}`);
+        setTimeout(() => setSaved(""), 2000);
+      });
   }, []);
 
   const handleRatingChange = useCallback((id: string, rating: number) => {
-    updateCatalogRating(id, rating);
-    setRefreshKey((k) => k + 1);
+    updateCatalogRating({ data: { id, rating } })
+      .then(() => getCatalogItems())
+      .then(setCatalog);
   }, []);
 
   if (catalog.length === 0) {
@@ -1914,7 +1956,13 @@ function StorefrontLayoutSettings() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    setCatalog(getCatalogItems());
+    let cancelled = false;
+    getCatalogItems().then((items) => {
+      if (!cancelled) setCatalog(items);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleLayoutChange = useCallback((newLayout: LayoutType) => {

@@ -241,3 +241,25 @@ export const updateCatalogAccess = createServerFn({ method: "POST" })
       })
       .where(eq(catalogItems.id, data.id));
   });
+
+/** Field-scoped update for the bulk promo-override editor (PromotionsAdminSection)
+ *  — writes only promoOverride, mirroring updateCatalogAccess, so a bulk save
+ *  can't clobber concurrent admin edits to other fields on the same rows. */
+export const updateCatalogPromoOverride = createServerFn({ method: "POST" })
+  .validator(
+    (input: {
+      id: string;
+      promoOverride: {
+        hasOverride: boolean;
+        overrideType: "percentage" | "flat" | "fixed";
+        overrideValue: number;
+      } | null;
+    }) => input,
+  )
+  .handler(async ({ data }): Promise<void> => {
+    await requireAdmin();
+    await db()
+      .update(catalogItems)
+      .set({ promoOverride: data.promoOverride })
+      .where(eq(catalogItems.id, data.id));
+  });

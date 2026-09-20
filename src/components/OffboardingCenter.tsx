@@ -4,9 +4,9 @@
  * Full purge clears all localStorage and sessionStorage matching OmniMedia keys.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { getCatalogItems } from "~/data/catalog";
+import { getCatalogItems } from "~/db/queries";
 import { getProgressEntries, getReviews } from "~/data/progress";
 import { getDownloads } from "~/data/downloads";
 import { getChatHistory } from "~/data/chatHistory";
@@ -17,7 +17,7 @@ import { getLicenseTier } from "~/data/licensing";
 interface ExportPayload {
   exportedAt: string;
   source: string;
-  catalog: ReturnType<typeof getCatalogItems>;
+  catalog: Awaited<ReturnType<typeof getCatalogItems>>;
   progress: ReturnType<typeof getProgressEntries>;
   reviews: ReturnType<typeof getReviews>;
   downloads: Awaited<ReturnType<typeof getDownloads>>;
@@ -54,7 +54,7 @@ async function collectAllData(): Promise<ExportPayload> {
   return {
     exportedAt: new Date().toISOString(),
     source: "OmniMedia OS — Offboarding Export",
-    catalog: getCatalogItems(),
+    catalog: await getCatalogItems(),
     progress: getProgressEntries(),
     reviews: getReviews(),
     downloads: await getDownloads(),
@@ -125,6 +125,17 @@ export function OffboardingCenter() {
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
   const [purging, setPurging] = useState(false);
+  const [catalogCount, setCatalogCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    getCatalogItems().then((items) => {
+      if (!cancelled) setCatalogCount(items.length);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleExport = useCallback(async () => {
     setExporting(true);
@@ -159,7 +170,6 @@ export function OffboardingCenter() {
   }, []);
 
   // Count data items
-  const catalogCount = getCatalogItems().length;
   const progressCount = getProgressEntries().length;
   const reviewCount = getReviews().length;
   const hasData = catalogCount > 0 || progressCount > 0 || reviewCount > 0;

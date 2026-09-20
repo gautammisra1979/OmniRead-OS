@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { getCatalogItems } from "~/data/catalog";
+import { getCatalogItems } from "~/db/queries";
 import { calculateTokens, deductCredits, addCredits, getWallet } from "~/data/wallet";
 import { searchKnowledge } from "~/data/knowledgeBase";
 import {
@@ -41,7 +41,7 @@ async function generateBotResponse(userText: string, bookId?: string, bookTitle?
 
   // Horizontal thinking: catalog-wide recommendations
   if (isRecommendation) {
-    const catalog = getCatalogItems();
+    const catalog = await getCatalogItems();
     if (catalog.length === 0) {
       return "Our catalog is currently empty. Check back soon for new additions!";
     }

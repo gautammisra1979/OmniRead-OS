@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useLanguage } from "~/components/LanguageProvider";
-import { getCatalogItems, type CatalogItem } from "~/data/catalog";
+import { type CatalogItem } from "~/data/catalog";
+import { getCatalogItems } from "~/db/queries";
 import { buyNow } from "~/data/stripeCheckout";
 
 interface QuizResultsProps {
@@ -57,14 +58,22 @@ export function QuizResults({ selections, onStartOver }: QuizResultsProps) {
     }
   };
 
-  const recommendations = useMemo<ScoredProduct[]>(() => {
-    const items = getCatalogItems();
-    const scored = items.map((item) => ({
-      ...item,
-      score: computeScore(item, selections),
-    }));
-    scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, 3);
+  const [recommendations, setRecommendations] = useState<ScoredProduct[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getCatalogItems().then((items) => {
+      if (cancelled) return;
+      const scored = items.map((item) => ({
+        ...item,
+        score: computeScore(item, selections),
+      }));
+      scored.sort((a, b) => b.score - a.score);
+      setRecommendations(scored.slice(0, 3));
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [selections]);
 
   const hasMatches = recommendations.some((r) => r.score > 0);

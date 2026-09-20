@@ -7,7 +7,7 @@
 
 /* ─── Membership Types ─── */
 
-import { getCatalogItems } from "./catalog";
+import { getCatalogItems } from "~/db/queries";
 export type MembershipTier = "free" | "basic" | "premium" | "enterprise";
 
 export interface MembershipPlan {
@@ -182,8 +182,8 @@ export function saveUpsellOffers(offers: UpsellOffer[]): void {
   }
 }
 
-export function generateUpsellOffers(): UpsellOffer[] {
-  const items = getCatalogItems();
+export async function generateUpsellOffers(): Promise<UpsellOffer[]> {
+  const items = await getCatalogItems();
   return items.slice(0, 3).map((item) => ({
     productId: item.id,
     title: item.title,
