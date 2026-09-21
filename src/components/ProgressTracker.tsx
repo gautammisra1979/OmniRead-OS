@@ -311,7 +311,7 @@ export function ProgressTracker({ product }: ProgressTrackerProps) {
                   ? "border-2 border-[var(--color-primary,#6366f1)] text-[var(--color-primary,#6366f1)]"
                   : "border border-[var(--color-border,#334155)] text-[var(--color-text-muted,#94a3b8)]"
               } ${d.isActive ? "ring-2 ring-offset-1 ring-[var(--color-primary,#6366f1)]" : ""}`}
-              style={d.isActive ? { ringColor: "var(--color-primary)" } : undefined}
+              style={d.isActive ? ({ "--tw-ring-color": "var(--color-primary)" } as React.CSSProperties) : undefined}
               aria-label={`Day ${d.dayNum}${d.isComplete ? " — completed" : d.hasProgress ? " — in progress" : " — no progress"}`}
             >
               {d.dayNum}

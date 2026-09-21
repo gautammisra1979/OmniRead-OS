@@ -63,9 +63,9 @@ export async function decryptRecoveryPhrase(encrypted: string): Promise<string |
     if (!ivB64 || !ciphertextB64) return null;
     const key = await importAesKey();
     const plaintext = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: fromBase64(ivB64) },
+      { name: "AES-GCM", iv: fromBase64(ivB64) as BufferSource },
       key,
-      fromBase64(ciphertextB64),
+      fromBase64(ciphertextB64) as BufferSource,
     );
     return new TextDecoder().decode(plaintext);
   } catch {

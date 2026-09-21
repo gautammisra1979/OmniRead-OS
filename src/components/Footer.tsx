@@ -49,7 +49,7 @@ export function Footer() {
             >
               {hasLogo ? (
                 <img
-                  src={branding.logoDataUrl}
+                  src={branding.logoDataUrl ?? undefined}
                   alt={branding.storeName}
                   className="h-7 w-auto rounded object-contain"
                 />

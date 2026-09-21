@@ -2029,8 +2029,8 @@ function StorefrontLayoutSettings() {
               backgroundColor: layout === opt.value
                 ? "color-mix(in srgb, var(--color-primary,#6366f1) 15%, transparent)"
                 : "var(--color-surface,#1e293b)/30",
-              ringColor: "var(--color-primary,#6366f1)",
-            }}
+              "--tw-ring-color": "var(--color-primary,#6366f1)",
+            } as React.CSSProperties}
             aria-label={t(opt.labelKey)}
           >
             <div className="mb-2 text-2xl" aria-hidden="true">{opt.icon}</div>

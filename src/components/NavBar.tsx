@@ -19,7 +19,7 @@ export function NavBar({ onCartOpen, cartCount = 0 }: { onCartOpen?: () => void;
             <img src={branding.logoDataUrl} alt="Logo" className="h-8 w-auto object-contain border border-black p-0.5" />
           ) : (
             <div className="text-xl font-black uppercase tracking-wider border-2 border-black px-2 py-0.5 bg-black text-white shadow-[2px_2px_0px_rgba(0,0,0,1)]">
-              {branding.name || "OMNIREAD"}
+              {branding.storeName || "OMNIREAD"}
             </div>
           )}
           <span className="text-xs uppercase font-sans tracking-widest font-black opacity-60 hidden sm:inline">Engine</span>

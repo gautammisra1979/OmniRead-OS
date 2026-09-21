@@ -9,7 +9,6 @@ import { AffiliateReferralBoot } from "~/components/AffiliateReferralBoot";
 
 export const Route = createRootRoute({
   component: RootComponent,
-  links: () => [{ rel: "stylesheet", href: appCss }],
 });
 
 function RootComponent() {
@@ -26,7 +25,7 @@ function RootComponent() {
         <HeadContent />
       </head>
       <body className="bg-white text-black min-h-screen antialiased m-0 p-0">
-        <ThemeProvider defaultTheme="light" storageKey="omni-theme">
+        <ThemeProvider>
           <LanguageProvider>
             <BrandingProvider>
               <AnonymousAuthBoot />
