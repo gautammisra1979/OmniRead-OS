@@ -9,7 +9,6 @@ import {
   downloadFromCloud,
   disconnectCloud,
   getCloudScopeDisclosure,
-  triggerSync,
   type SyncStatus,
 } from "~/data/cloudSync";
 import { importBackup } from "~/data/storageBackup";

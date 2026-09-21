@@ -46,10 +46,8 @@ import {
 import {
   getPromoSettings,
   savePromoSettings,
-  calculateDiscountedPrice,
   DEFAULT_PROMO_SETTINGS,
   type PromoSettings,
-  type PromoOverride,
 } from "~/data/promotions";
 import {
   getCommentsForProduct,

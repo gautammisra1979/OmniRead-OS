@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { getUpsellOffers, saveUpsellOffers, generateUpsellOffers, getMembershipPlans, saveMembershipPlans, upgradeMembership, getUserMembership, type MembershipPlan, type MembershipTier } from "~/data/membership";
+import { getUpsellOffers, saveUpsellOffers, generateUpsellOffers, getMembershipPlans, saveMembershipPlans, type MembershipPlan } from "~/data/membership";
 import { getCatalogItems, updateCatalogAccess } from "~/db/queries";
 import type { CatalogItem } from "~/data/catalog";
 

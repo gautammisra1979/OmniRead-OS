@@ -13,7 +13,7 @@ export const Route = createFileRoute("/reader/$productId")({
 function ReaderRoute() {
   const { productId } = useParams({ from: "/reader/$productId" });
   const navigate = useNavigate();
-  const { t } = useLanguage();
+  useLanguage();
   const [product, setProduct] = useState<Product | null>(null);
   const [owns, setOwns] = useState(false);
 

@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { defaultQuiz, type QuizQuestion, type QuizOption } from "~/data/defaultQuiz";
+import { defaultQuiz } from "~/data/defaultQuiz";
 
 function shuffleAndPick<T>(arr: T[], count: number): T[] {
   const copy = [...arr];

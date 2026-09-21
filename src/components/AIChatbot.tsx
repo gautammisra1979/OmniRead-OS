@@ -1,11 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import { getCatalogItems } from "~/db/queries";
-import { calculateTokens, deductCredits, addCredits, getWallet } from "~/data/wallet";
+import { calculateTokens, deductCredits, getWallet } from "~/data/wallet";
 import { searchKnowledge } from "~/data/knowledgeBase";
 import {
   getChatHistory,
-  saveChatHistory,
   addChatMessage,
   clearChatHistory,
   type ChatMessage,

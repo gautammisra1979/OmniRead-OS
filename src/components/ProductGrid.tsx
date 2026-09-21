@@ -96,7 +96,7 @@ function ProductCard({
   const hasQuizTags = !!(product.quizMood?.length || product.quizFormat?.length || product.quizHook?.length || product.quizPace?.length);
   const isComingSoon = product.status === "coming-soon";
 
-  const handleAddToCart = useCallback((id: string) => {
+  const handleAddToCart = useCallback(() => {
     onBuy(product.title);
   }, [onBuy, product.title]);
 

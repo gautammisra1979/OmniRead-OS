@@ -4,7 +4,7 @@ import { useLanguage } from "~/components/LanguageProvider";
 import { LicenseGate } from "~/components/LicenseGate";
 import { getCatalogItems } from "~/db/queries";
 import { type CatalogItem } from "~/data/catalog";
-import { getProgressEntries, getReviews, type ReviewData } from "~/data/progress";
+import { getProgressEntries, getReviews } from "~/data/progress";
 import { ProgressTracker } from "~/components/ProgressTracker";
 import { NotificationSettings } from "~/components/NotificationSettings";
 import { ReviewForm } from "~/components/ReviewForm";
@@ -18,7 +18,7 @@ function ChallengePage() {
   const { t } = useLanguage();
   const [activeProductId, setActiveProductId] = useState<string | null>(null);
   const [reviewProductId, setReviewProductId] = useState<string | null>(null);
-  const [reviewRefresh, setReviewRefresh] = useState(0);
+  const [, setReviewRefresh] = useState(0);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
 
   useEffect(() => {
@@ -32,7 +32,6 @@ function ChallengePage() {
   }, []);
 
   const progressEntries = getProgressEntries();
-  const trackedProductIds = new Set(progressEntries.map((e) => e.productId));
   const trackedProducts = progressEntries
     .map((e) => catalog.find((c) => c.id === e.productId))
     .filter(Boolean) as typeof catalog;

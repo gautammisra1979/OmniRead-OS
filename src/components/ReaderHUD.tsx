@@ -11,7 +11,7 @@ interface ReaderHUDProps {
   productId: string;
 }
 
-export function ReaderHUD({ title, author, content, onClose, productId }: ReaderHUDProps) {
+export function ReaderHUD({ title, author, content, onClose }: ReaderHUDProps) {
   const { t } = useLanguage();
   const [theme, setTheme] = useState<ReaderTheme>("day");
   const [fontSize, setFontSize] = useState(18);

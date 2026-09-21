@@ -10,7 +10,7 @@ export function CreditWidget() {
   const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [credits, setCredits] = useState(0);
-  const [costPer1K, setCostPer1K] = useState(0.01);
+  const [, setCostPer1K] = useState(0.01);
   const [wallet, setWallet] = useState<WalletState>(EMPTY_WALLET);
 
   useEffect(() => {

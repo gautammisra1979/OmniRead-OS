@@ -566,7 +566,6 @@ function parseCSV(text: string): CSVImportRow[] {
 
   const headers = parseLine(lines[0]).map((h) => h.toLowerCase().trim());
   const requiredHeaders = ["title", "creator", "price", "type", "cover_url", "content_url"];
-  const optionalHeaders = ["quiz_mood", "quiz_format", "quiz_hook", "quiz_pace"];
 
   // Check all required headers are present (order independent)
   const headerSet = new Set(headers);

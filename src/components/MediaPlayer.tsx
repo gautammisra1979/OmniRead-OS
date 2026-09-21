@@ -14,8 +14,8 @@ const SAMPLE_AUDIO = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.
 export function MediaPlayer({ product }: MediaPlayerProps) {
   const { t } = useLanguage();
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [, setCurrentTime] = useState(0);
+  const [, setDuration] = useState(0);
   const [vttUrl, setVttUrl] = useState("");
   const [cues, setCues] = useState<VTTCue[]>([]);
   const [activeCueIdx, setActiveCueIdx] = useState(-1);

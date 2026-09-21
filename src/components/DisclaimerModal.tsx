@@ -4,8 +4,8 @@ import { getDisclaimerConfig, saveDisclaimerConfig, type DisclaimerConfig } from
 import { getInfoModals, addInfoModal, removeInfoModal } from "~/data/membership";
 
 export function DisclaimerModal() {
-  const { t } = useLanguage();
-  const [config, setConfig] = useState<DisclaimerConfig>(getDisclaimerConfig());
+  useLanguage();
+  const [config] = useState<DisclaimerConfig>(getDisclaimerConfig());
   const [accepted, setAccepted] = useState(false);
 
   useEffect(() => {
@@ -198,7 +198,7 @@ export function DisclaimerConfigSection() {
 
 /* ─── Info Modal ─── */
 
-export function InfoModal({ id, title, content, icon, onClose }: {
+export function InfoModal({ title, content, icon, onClose }: {
   id: string;
   title: string;
   content: string;

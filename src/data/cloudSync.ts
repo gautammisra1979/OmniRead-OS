@@ -7,7 +7,7 @@
  * against the private, isolated appDataFolder.
  */
 
-import { exportBackup, importBackup, type BackupPackage } from "~/data/storageBackup";
+import { exportBackup, type BackupPackage } from "~/data/storageBackup";
 
 /* ─── Constants ─── */
 
@@ -19,7 +19,6 @@ const SIMULATED_CLOUD_KEY = "omnimedia_simulated_cloud_payload";
 
 // Google Drive OAuth 2.0 endpoints (Implicit Grant)
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
-const GOOGLE_TOKEN_INFO_URL = "https://www.googleapis.com/oauth2/v3/tokeninfo";
 const GOOGLE_DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
 const GOOGLE_DRIVE_UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3";
 

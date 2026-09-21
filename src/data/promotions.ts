@@ -165,7 +165,7 @@ export function calculateDiscountedPrice(
   return { discounted: Math.round(originalPrice * 100) / 100, hasDiscount: false };
 }
 
-export function getPromoOverride(productId: string): PromoOverride | null {
+export function getPromoOverride(): PromoOverride | null {
   // Override stored on the catalog item directly - handled inline in components
   return null;
 }

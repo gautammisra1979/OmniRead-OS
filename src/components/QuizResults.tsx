@@ -140,7 +140,7 @@ export function QuizResults({ selections, onStartOver }: QuizResultsProps) {
         </div>
       ) : (
         <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-3">
-          {recommendations.map((product, index) => (
+          {recommendations.map((product) => (
             <div
               key={product.id}
               className="group relative overflow-hidden rounded-xl border transition-all hover:shadow-lg"

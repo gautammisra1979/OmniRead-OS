@@ -61,7 +61,7 @@ export function UserControlCenter({
   onClose: () => void;
 }) {
   const { t, locale, setLocale } = useLanguage();
-  const { branding } = useBranding();
+  useBranding();
   const [activeTab, setActiveTab] = useState<TabId>("profile");
   const [persona, setPersona] = useState<Persona>("buyer");
 

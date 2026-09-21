@@ -42,7 +42,7 @@ function StarRating({ rating, reviewCount, size = "sm" }: { rating: number; revi
 
 function RouteComponent() {
   const { productId } = useParams({ from: "/product/$productId" });
-  const { t, locale } = useLanguage();
+  const { t } = useLanguage();
   const [product, setProduct] = useState<Product | null>(null);
   const [catalogItem, setCatalogItem] = useState<CatalogItem | null>(null);
   const [selectedFormat, setSelectedFormat] = useState<string>("");
