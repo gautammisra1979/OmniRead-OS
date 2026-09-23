@@ -8,8 +8,8 @@ interface MediaPlayerProps {
   product: CatalogItem;
 }
 
-const SAMPLE_VIDEO = "https://www.w3schools.com/html/mov_bbb.mp4";
-const SAMPLE_AUDIO = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
+const SAMPLE_VIDEO = "/sample-media/sample-video.mp4";
+const SAMPLE_AUDIO = "/sample-media/sample-audio.mp3";
 
 export function MediaPlayer({ product }: MediaPlayerProps) {
   const { t } = useLanguage();

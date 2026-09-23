@@ -41,7 +41,9 @@ export const translations: Record<string, Record<string, string>> = {
     "catalog.statusLabel": "Status",
 
     "product.buyNow": "Buy Now",
-    "product.buyNowError": "Checkout failed. Please try again."
+    "product.buyNowError": "Checkout failed. Please try again.",
+
+    "media.noMedia": "Sample preview — upload your media to replace this placeholder."
   },
   fr: {
     "nav.bestsellers": "Meilleures Ventes",
