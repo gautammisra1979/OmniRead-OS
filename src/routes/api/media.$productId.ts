@@ -14,7 +14,16 @@ export const Route = createFileRoute("/api/media/$productId")({
   server: {
     handlers: {
       GET: async ({ params }: { params: { productId: string } }) => {
-        const userId = await getUserId();
+        // getUserId() throws uncaught when there's no session (see its own
+        // doc comment) — every other caller relies on that, so it's caught
+        // here only, not fixed at the source. An unauthenticated request to
+        // this route must get a clean 401, not a 500.
+        let userId: string;
+        try {
+          userId = await getUserId();
+        } catch {
+          return new Response("Unauthorized", { status: 401 });
+        }
 
         const item = await getCatalogItemById({ data: params.productId });
         if (!item || !item.mediaFile.dataUrl) {
