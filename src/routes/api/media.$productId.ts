@@ -46,6 +46,7 @@ export const Route = createFileRoute("/api/media/$productId")({
         const headers = new Headers();
         headers.set("Content-Type", blob.blob.contentType || "application/octet-stream");
         if (blob.blob.size) headers.set("Content-Length", String(blob.blob.size));
+        headers.set("Cache-Control", "private, no-store");
 
         return new Response(blob.stream, { headers });
       },
