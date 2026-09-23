@@ -59,11 +59,8 @@ function rowToClaim(row: RefundClaimRow): RefundClaim {
 
 const dbGetRefundClaims = createServerFn({ method: "GET" }).handler(
   async (): Promise<RefundClaim[]> => {
-    const userId = await getUserId();
-    const rows = await db()
-      .select()
-      .from(refundClaims)
-      .where(eq(refundClaims.userId, userId));
+    await requireAdmin();
+    const rows = await db().select().from(refundClaims);
     return rows.map(rowToClaim);
   },
 );
