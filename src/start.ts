@@ -10,11 +10,12 @@ import { setResponseHeader } from "@tanstack/react-start/server";
  * threaded to router.tsx via context so both the header and the injected
  * script agree on the same value.
  *
- * Vercel's public Blob store hostname below is this project's real one
- * (confirmed from a live upload, not guessed) — it's account-specific and
- * would need updating if the store were ever recreated.
+ * Vercel's public Blob store hostname below is a wildcard scoped to
+ * Vercel's own Blob domain rather than this store's specific account
+ * subdomain — this codebase is resold as a template, and each buyer's
+ * Blob store gets a different subdomain under the same domain.
  */
-const BLOB_PUBLIC_HOST = "https://halu8nj4tasr7erk.public.blob.vercel-storage.com";
+const BLOB_PUBLIC_HOST = "https://*.public.blob.vercel-storage.com";
 
 function buildCsp(nonce: string): string {
   return [
@@ -29,7 +30,7 @@ function buildCsp(nonce: string): string {
     "font-src 'self' https://fonts.gstatic.com",
     `img-src 'self' data: ${BLOB_PUBLIC_HOST}`,
     `media-src 'self' blob: ${BLOB_PUBLIC_HOST}`,
-    "connect-src 'self'",
+    "connect-src 'self' https://www.googleapis.com",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
