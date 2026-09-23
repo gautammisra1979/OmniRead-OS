@@ -72,23 +72,36 @@ const dbSubmitRefundClaim = createServerFn({ method: "POST" })
   .validator(
     (input: {
       downloadId: string;
-      productId: string;
-      productTitle: string;
-      transactionId: string;
       reason: string;
       refundLoyaltyPoints: number;
     }) => input,
   )
   .handler(async ({ data: input }): Promise<RefundClaim> => {
     const userId = await getUserId();
-    const [row] = await db()
+    const database = db();
+
+    // IDOR fix (Session 56): productId/productTitle/transactionId used to
+    // come straight from client input, so a buyer could name someone
+    // else's downloadId and have their download refunded/access-revoked on
+    // approval. Look up the real download row server-side and verify
+    // ownership before accepting the claim.
+    const downloadRows = await database.select().from(downloads).where(eq(downloads.id, input.downloadId));
+    const download = downloadRows[0];
+    if (!download || download.userId !== userId) {
+      throw new Error("Download not found");
+    }
+    if (!download.sessionId) {
+      throw new Error("This purchase has no transaction record to refund");
+    }
+
+    const [row] = await database
       .insert(refundClaims)
       .values({
         userId,
-        downloadId: input.downloadId,
-        productId: input.productId,
-        productTitle: input.productTitle,
-        transactionId: input.transactionId,
+        downloadId: download.id,
+        productId: download.productId,
+        productTitle: download.productTitle,
+        transactionId: download.sessionId,
         reason: input.reason,
         refundLoyaltyPoints: input.refundLoyaltyPoints,
       })
@@ -180,13 +193,23 @@ export async function getRefundClaims(): Promise<RefundClaim[]> {
 
 export async function submitRefundClaim(input: {
   downloadId: string;
+  // productId/productTitle/transactionId are accepted here only to match
+  // RefundForm.tsx's existing call shape — the server derives all three
+  // from the verified downloads row instead of trusting client input, so
+  // they're intentionally not forwarded below.
   productId: string;
   productTitle: string;
   transactionId: string;
   reason: string;
   refundLoyaltyPoints: number;
 }): Promise<RefundClaim> {
-  return dbSubmitRefundClaim({ data: input });
+  return dbSubmitRefundClaim({
+    data: {
+      downloadId: input.downloadId,
+      reason: input.reason,
+      refundLoyaltyPoints: input.refundLoyaltyPoints,
+    },
+  });
 }
 
 export async function approveRefundClaim(

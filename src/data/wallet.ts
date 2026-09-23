@@ -4,17 +4,21 @@ import { createServerFn } from "@tanstack/react-start";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
-import { wallet as walletTable, type WalletRow } from "~/db/schema";
+import { wallet as walletTable, creditSettings, type WalletRow } from "~/db/schema";
 import { getUserId } from "~/lib/getUserId";
 import { requireAdmin } from "~/lib/requireAdmin";
 
 /**
  * Phase 3 (Step 26): DB-backed wallet, replacing the localStorage version.
- * costPer1K is folded into the same `wallet` row as a column (no more
- * separate COST_KEY). Rows are keyed by the Better Auth user_id
- * (src/lib/getUserId.ts) — every visitor, guest or logged-in, has one via
- * the `anonymous` plugin. Flight Recorder calls that used to fire on every
- * mutation here have been removed; Postgres is the durability layer now.
+ * Rows are keyed by the Better Auth user_id (src/lib/getUserId.ts) — every
+ * visitor, guest or logged-in, has one via the `anonymous` plugin. Flight
+ * Recorder calls that used to fire on every mutation here have been
+ * removed; Postgres is the durability layer now.
+ *
+ * costPer1K (Session 56) moved off the per-user wallet row into the single
+ * global `creditSettings` row ("global" id) — same pattern as
+ * affiliateSettings (src/data/affiliateSettings.ts). It's one flat rate for
+ * every visitor, not per-user config.
  *
  * Each public function below is a plain async wrapper around an internal
  * createServerFn, preserving the original call signature. The
@@ -52,6 +56,8 @@ function rowToWalletState(row: WalletRow): WalletState {
   };
 }
 
+const CREDIT_SETTINGS_ID = "global";
+
 async function loadWalletRow(userId: string): Promise<WalletRow | null> {
   const rows = await db().select().from(walletTable).where(eq(walletTable.userId, userId));
   return rows[0] ?? null;
@@ -66,7 +72,6 @@ async function upsertWallet(
     totalPurchased: string;
     totalConsumed: string;
     refillPrice: string;
-    costPer1K: string;
   }>,
 ): Promise<WalletRow> {
   const [row] = await db()
@@ -77,7 +82,6 @@ async function upsertWallet(
       totalPurchased: patch.totalPurchased ?? String(DEFAULT_WALLET.totalPurchased),
       totalConsumed: patch.totalConsumed ?? String(DEFAULT_WALLET.totalConsumed),
       refillPrice: patch.refillPrice ?? String(DEFAULT_WALLET.refillPrice),
-      costPer1K: patch.costPer1K ?? String(DEFAULT_COST_PER_1K),
     })
     .onConflictDoUpdate({
       target: walletTable.userId,
@@ -95,17 +99,6 @@ const dbGetWallet = createServerFn({ method: "GET" }).handler(
     return row ? rowToWalletState(row) : { ...DEFAULT_WALLET };
   },
 );
-
-const dbSaveWallet = createServerFn({ method: "POST" })
-  .validator((state: WalletState) => state)
-  .handler(async ({ data: state }): Promise<void> => {
-    await upsertWallet(await getUserId(), {
-      credits: String(state.credits),
-      totalPurchased: String(state.totalPurchased),
-      totalConsumed: String(state.totalConsumed),
-      refillPrice: String(state.refillPrice),
-    });
-  });
 
 const dbDeductCredits = createServerFn({ method: "POST" })
   .validator((amount: number) => amount)
@@ -152,8 +145,18 @@ const dbAddCredits = createServerFn({ method: "POST" })
 
 const dbGetCostPer1K = createServerFn({ method: "GET" }).handler(
   async (): Promise<number> => {
-    const row = await loadWalletRow(await getUserId());
-    return row ? Number(row.costPer1K) : DEFAULT_COST_PER_1K;
+    const database = db();
+    const rows = await database
+      .select()
+      .from(creditSettings)
+      .where(eq(creditSettings.id, CREDIT_SETTINGS_ID));
+    if (rows[0]) return rows[0].costPer1K;
+
+    await database
+      .insert(creditSettings)
+      .values({ id: CREDIT_SETTINGS_ID, costPer1K: DEFAULT_COST_PER_1K })
+      .onConflictDoNothing();
+    return DEFAULT_COST_PER_1K;
   },
 );
 
@@ -162,20 +165,19 @@ const dbSaveCostPer1K = createServerFn({ method: "POST" })
   .handler(async ({ data: cost }): Promise<void> => {
     await requireAdmin();
     const clamped = Math.min(0.05, Math.max(0, cost));
-    await upsertWallet(await getUserId(), { costPer1K: String(clamped) });
+    await db()
+      .insert(creditSettings)
+      .values({ id: CREDIT_SETTINGS_ID, costPer1K: clamped })
+      .onConflictDoUpdate({
+        target: creditSettings.id,
+        set: { costPer1K: clamped },
+      });
   });
 
 /* ─── Public API ─── */
 
 export async function getWallet(): Promise<WalletState> {
   return dbGetWallet();
-}
-
-export async function saveWallet(state: WalletState): Promise<void> {
-  await dbSaveWallet({ data: state });
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("wallet-updated", { detail: state }));
-  }
 }
 
 export async function deductCredits(amount: number): Promise<boolean> {

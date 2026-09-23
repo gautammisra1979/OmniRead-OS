@@ -143,13 +143,17 @@ export const wallet = pgTable("wallet", {
   refillPrice: numeric("refill_price", { precision: 10, scale: 2 })
     .notNull()
     .default("3.99"),
-  costPer1K: numeric("cost_per_1k", { precision: 10, scale: 4 })
-    .notNull()
-    .default("0.01"),
 });
 
 export type WalletRow = typeof wallet.$inferSelect;
 export type NewWalletRow = typeof wallet.$inferInsert;
+
+export const creditSettings = pgTable("credit_settings", {
+  id: text("id").primaryKey(), // fixed "global" row
+  costPer1K: doublePrecision("cost_per_1k").notNull().default(0.01),
+});
+export type CreditSettingsRow = typeof creditSettings.$inferSelect;
+export type NewCreditSettingsRow = typeof creditSettings.$inferInsert;
 
 export const loyaltyConfig = pgTable(
   "loyalty_config",
