@@ -470,3 +470,49 @@ export const affiliateSettings = pgTable("affiliate_settings", {
 });
 export type AffiliateSettingsRow = typeof affiliateSettings.$inferSelect;
 export type NewAffiliateSettingsRow = typeof affiliateSettings.$inferInsert;
+
+/**
+ * Session 60: swappable transactional-email provider config. Single global,
+ * admin-managed settings row — same pattern as affiliateSettings/promoSettings.
+ * Each provider gets its own named columns (not a generic key-value blob) so
+ * Resend/Postmark's single API key and SES's access-key/secret/region don't
+ * have to be forced into the same field shape. Secret columns
+ * (*ApiKeyEncrypted, sesSecretAccessKeyEncrypted) hold ciphertext produced by
+ * src/lib/recoveryCrypto.ts's AES-GCM helpers, decrypted only inside the
+ * adapter call path (src/lib/email/getProvider.ts) — dbGetEmailSettings
+ * (src/data/emailSettings.ts) never returns these columns to the client.
+ * sesAccessKeyId is not secret (it's an identifier, not a credential) and is
+ * returned as-is.
+ */
+export const emailSettings = pgTable("email_settings", {
+  id: text("id").primaryKey(), // fixed "global" row
+  provider: text("provider").notNull().default("resend"), // "resend" | "postmark" | "ses"
+  fromName: text("from_name").notNull().default(""),
+  fromAddress: text("from_address").notNull().default(""),
+  resendApiKeyEncrypted: text("resend_api_key_encrypted"),
+  postmarkApiKeyEncrypted: text("postmark_api_key_encrypted"),
+  sesAccessKeyId: text("ses_access_key_id"),
+  sesSecretAccessKeyEncrypted: text("ses_secret_access_key_encrypted"),
+  sesRegion: text("ses_region").notNull().default("us-east-1"),
+});
+export type EmailSettingsRow = typeof emailSettings.$inferSelect;
+export type NewEmailSettingsRow = typeof emailSettings.$inferInsert;
+
+/**
+ * Session 60: failure log for sendEmail() (src/lib/email/sendEmail.ts), the
+ * guard-rail wrapper future automatic call sites (password reset, magic-link,
+ * Contact Us notification — none wired up yet) will use instead of calling a
+ * provider adapter directly. One row per real-send failure in production;
+ * same shape/style as affiliateClickEvents. No admin UI reads this yet
+ * (deliberately deferred until a real automatic call site exists).
+ */
+export const emailSendFailures = pgTable("email_send_failures", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  notificationType: text("notification_type").notNull(),
+  recipient: text("recipient").notNull(),
+  errorMessage: text("error_message").notNull(),
+  provider: text("provider").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type EmailSendFailureRow = typeof emailSendFailures.$inferSelect;
+export type NewEmailSendFailureRow = typeof emailSendFailures.$inferInsert;

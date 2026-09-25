@@ -66,6 +66,7 @@ import { dispatchLicenseChange } from "~/components/LicenseGate";
 import { authClient } from "~/lib/auth-client";
 import { OffboardingCenter } from "~/components/OffboardingCenter";
 import { RefundClaimsManager } from "~/components/RefundClaimsManager";
+import { EmailSettings } from "~/components/EmailSettings";
 import { PlatformFactoryReset } from "~/components/PlatformFactoryReset";
 import { StorageConsole } from "~/components/StorageConsole";
 import { StyleCustomizer, AnnouncementConfigSection } from "~/components/StyleCustomizer";
@@ -270,6 +271,9 @@ function AdminDashboard() {
 
       {/* Refund & Claims Manager */}
       <RefundClaimsManager />
+
+      {/* Transactional Email Settings */}
+      <EmailSettings />
 
       {/* Storage & Sync Console */}
       <div className="mt-12 border-t border-[var(--color-border,#334155)] pt-10">
