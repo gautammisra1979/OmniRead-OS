@@ -101,6 +101,19 @@ const dbSaveEmailSettings = createServerFn({ method: "POST" })
   .validator((input: EmailSettingsInput) => input)
   .handler(async ({ data: input }): Promise<void> => {
     await requireAdmin();
+
+    // Defense-in-depth: the admin UI dropdown already hides unverified
+    // providers, but the server function itself must not accept one either
+    // — a provider only belongs in the store owner's config once it has a
+    // real smoke-tested send behind it (Session 58's staged-verification
+    // design), not just code that compiles. Same source of truth the
+    // dropdown reads (getVerifiedProviders() below), not a second one.
+    if (!EMAIL_PROVIDER_REGISTRY[input.provider]?.verified) {
+      throw new Error(
+        `"${EMAIL_PROVIDER_REGISTRY[input.provider]?.label ?? input.provider}" has not been verified yet and cannot be selected as the active email provider.`,
+      );
+    }
+
     const database = db();
     const existingRows = await database.select().from(emailSettings).where(eq(emailSettings.id, EMAIL_SETTINGS_ID));
     const existing = existingRows[0];

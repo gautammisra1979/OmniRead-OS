@@ -42,14 +42,22 @@ export async function sendEmail({ notificationType, message }: SendEmailParams):
   const result = await provider.send(resolvedMessage);
 
   if (!result.success) {
-    await drizzle(sql())
-      .insert(emailSendFailures)
-      .values({
-        notificationType,
-        recipient: resolvedMessage.to,
-        errorMessage: result.error ?? "Unknown error",
-        provider: providerId,
-      });
+    // The failure-log insert must never be able to mask the original send
+    // failure it exists to record — if the insert itself fails (e.g. a
+    // transient DB issue), log that separately and still propagate the
+    // real send failure below, not the logging failure in its place.
+    try {
+      await drizzle(sql())
+        .insert(emailSendFailures)
+        .values({
+          notificationType,
+          recipient: resolvedMessage.to,
+          errorMessage: result.error ?? "Unknown error",
+          provider: providerId,
+        });
+    } catch (logError) {
+      console.error("[sendEmail] failed to record email_send_failures row:", logError);
+    }
   }
 
   return result;
