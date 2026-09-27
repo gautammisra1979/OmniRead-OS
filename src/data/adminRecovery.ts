@@ -21,6 +21,14 @@ import { sql } from "~/db";
 import { adminAuth, type AdminAuthRow } from "~/db/schema";
 import { requireAdmin, issueAdminSession, clearAdminSession } from "~/lib/requireAdmin";
 import { encryptRecoveryPhrase, decryptRecoveryPhrase } from "~/lib/recoveryCrypto";
+import { checkRateLimit } from "~/lib/rateLimit";
+
+// Single fixed key, not per-IP: there is exactly one legitimate secret
+// behind this endpoint, so a per-IP key would let an attacker reset the
+// budget by switching VPN/proxy on every attempt. Shared by both
+// dbVerifyAdminPasscode and dbLoginAdmin below. Mirrors Better Auth's own
+// sign-in special rule (window 10s, max 3).
+const ADMIN_PASSCODE_RATE_LIMIT_KEY = "admin-passcode:global";
 
 const ADMIN_AUTH_ID = "global";
 
@@ -289,9 +297,18 @@ const WORD_LIST = [
 ];
 
 function generateSeed(): string[] {
+  const max = WORD_LIST.length;
+  // Largest multiple of `max` that fits in a uint32 — rejecting draws at or
+  // above this avoids modulo bias against the word list length.
+  const limit = Math.floor(0x100000000 / max) * max;
+  const draws = crypto.getRandomValues(new Uint32Array(12));
   const words: string[] = [];
   for (let i = 0; i < 12; i++) {
-    words.push(WORD_LIST[Math.floor(Math.random() * WORD_LIST.length)]);
+    let value = draws[i];
+    while (value >= limit) {
+      value = crypto.getRandomValues(new Uint32Array(1))[0];
+    }
+    words.push(WORD_LIST[value % max]);
   }
   return words;
 }
@@ -325,11 +342,21 @@ const dbHasAdminCredentials = createServerFn({ method: "GET" }).handler(
 const dbVerifyAdminPasscode = createServerFn({ method: "POST" })
   .validator((passcode: string) => passcode)
   .handler(async ({ data: passcode }): Promise<boolean> => {
+    const allowed = await checkRateLimit(ADMIN_PASSCODE_RATE_LIMIT_KEY, 10, 3);
+    if (!allowed) {
+      // Generic false, same as a wrong passcode — never reveal that this
+      // particular failure was rate-limit-specific.
+      console.warn("[adminRecovery] admin passcode verification failed");
+      return false;
+    }
     const row = await getRow();
     if (!row?.passcodeHash) return false;
     try {
-      return await argon2Verify({ password: passcode, hash: row.passcodeHash });
+      const valid = await argon2Verify({ password: passcode, hash: row.passcodeHash });
+      if (!valid) console.warn("[adminRecovery] admin passcode verification failed");
+      return valid;
     } catch {
+      console.warn("[adminRecovery] admin passcode verification failed");
       return false;
     }
   });
@@ -342,10 +369,18 @@ const dbVerifyAdminPasscode = createServerFn({ method: "POST" })
 const dbLoginAdmin = createServerFn({ method: "POST" })
   .validator((passcode: string) => passcode)
   .handler(async ({ data: passcode }): Promise<boolean> => {
+    const allowed = await checkRateLimit(ADMIN_PASSCODE_RATE_LIMIT_KEY, 10, 3);
+    if (!allowed) {
+      // Generic false, same as a wrong passcode — never reveal that this
+      // particular failure was rate-limit-specific.
+      console.warn("[adminRecovery] admin login failed");
+      return false;
+    }
     const row = await getRow();
     const valid = row?.passcodeHash
       ? await argon2Verify({ password: passcode, hash: row.passcodeHash })
       : passcode === DEFAULT_ADMIN_PASSCODE;
+    if (!valid) console.warn("[adminRecovery] admin login failed");
     if (valid) await issueAdminSession();
     return valid;
   });

@@ -4,6 +4,13 @@ import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { comments, type CommentRow } from "~/db/schema";
 import { requireAdmin } from "~/lib/requireAdmin";
+import { checkRateLimitByIp } from "~/lib/rateLimit";
+
+// Looser window than the admin-passcode limiter — this guards normal user
+// behavior (spam) rather than brute force. Starting point, not a
+// carefully-tuned production value.
+const COMMENT_POST_WINDOW_SECONDS = 60;
+const COMMENT_POST_MAX = 5;
 
 /**
  * Phase 5 (Step 26): DB-backed discussion comments, replacing the
@@ -77,6 +84,9 @@ const dbGetCommentsForProduct = createServerFn({ method: "GET" })
 const dbAddComment = createServerFn({ method: "POST" })
   .validator((input: { productId: string; author: string; body: string }) => input)
   .handler(async ({ data }): Promise<Comment> => {
+    const allowed = await checkRateLimitByIp("comment-post", COMMENT_POST_WINDOW_SECONDS, COMMENT_POST_MAX);
+    if (!allowed) throw new Error("Too many comments posted. Please wait a bit and try again.");
+
     const comment: Comment = {
       id: generateId(),
       productId: data.productId,
@@ -102,6 +112,9 @@ const dbAddComment = createServerFn({ method: "POST" })
 const dbReplyToComment = createServerFn({ method: "POST" })
   .validator((input: { parentId: string; author: string; body: string }) => input)
   .handler(async ({ data }): Promise<Comment> => {
+    const allowed = await checkRateLimitByIp("comment-post", COMMENT_POST_WINDOW_SECONDS, COMMENT_POST_MAX);
+    if (!allowed) throw new Error("Too many comments posted. Please wait a bit and try again.");
+
     const database = db();
     const parentRows = await database.select().from(comments).where(eq(comments.id, data.parentId));
     const parent = parentRows[0];

@@ -5,6 +5,13 @@ import { getCart, getRecoveryPromoCode } from "~/data/cart";
 import { getCatalogItemById } from "~/db/queries";
 import { getPromoSettings, calculateDiscountedPrice, type PromoOverride } from "~/data/promotions";
 import { getUserId } from "~/lib/getUserId";
+import { checkRateLimitByIp } from "~/lib/rateLimit";
+
+// Looser than the comment-post limit: checkout retries from real hesitant
+// buyers are more common than comment retries, so a tighter window/max here
+// would block legitimate buyers.
+const CHECKOUT_SESSION_WINDOW_SECONDS = 60;
+const CHECKOUT_SESSION_MAX = 10;
 
 /**
  * Real Stripe Checkout Sessions (redirect-based — no Stripe.js needed).
@@ -46,6 +53,9 @@ export interface SingleItemCheckout {
 const dbCreateCheckoutSession = createServerFn({ method: "POST" })
   .validator((data: SingleItemCheckout | null) => data)
   .handler(async ({ data: singleItem }): Promise<{ url: string }> => {
+    const allowed = await checkRateLimitByIp("checkout-session", CHECKOUT_SESSION_WINDOW_SECONDS, CHECKOUT_SESSION_MAX);
+    if (!allowed) throw new Error("Too many checkout attempts. Please wait a bit and try again.");
+
     const userId = await getUserId();
 
     // "Buy Now" (singleItem present) checks out exactly the clicked item,

@@ -141,6 +141,20 @@
       "when": 1790304496161,
       "tag": "0019_breezy_quentin_quire",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790521064918,
+      "tag": "0020_secret_blacklash",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790521248481,
+      "tag": "0021_melted_landau",
+      "breakpoints": true
     }
   ]
 }

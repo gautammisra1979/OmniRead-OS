@@ -184,6 +184,10 @@ export const auth = betterAuth({
   }),
   emailAndPassword: {
     enabled: true,
+    autoSignIn: false,
+  },
+  rateLimit: {
+    storage: "database",
   },
   // Deliberately NOT setting account.accountLinking.updateUserInfoOnLink or
   // apple's own overrideUserInfoOnSignIn: Apple only sends the user's name

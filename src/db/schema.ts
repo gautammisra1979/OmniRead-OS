@@ -516,3 +516,18 @@ export const emailSendFailures = pgTable("email_send_failures", {
 });
 export type EmailSendFailureRow = typeof emailSendFailures.$inferSelect;
 export type NewEmailSendFailureRow = typeof emailSendFailures.$inferInsert;
+
+/**
+ * Session 63: one shared fixed-window rate limiter for every server
+ * endpoint that doesn't go through Better Auth's own handler (which has its
+ * own rate_limit table — see auth-schema.ts). See src/lib/rateLimit.ts for
+ * the atomic upsert this table backs.
+ */
+export const rateLimitHits = pgTable("rate_limit_hits", {
+  key: text("key").primaryKey(), // e.g. "admin-passcode:global" or "comment-post:203.0.113.4"
+  count: integer("count").notNull().default(1),
+  windowStart: timestamp("window_start", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type RateLimitHitRow = typeof rateLimitHits.$inferSelect;
+export type NewRateLimitHitRow = typeof rateLimitHits.$inferInsert;
