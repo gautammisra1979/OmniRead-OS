@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
-import { downloads, type DownloadRow, type NewDownloadRow } from "~/db/schema";
+import { downloads, type DownloadRow } from "~/db/schema";
 import { getUserId } from "~/lib/getUserId";
 import { requireAdmin } from "~/lib/requireAdmin";
 
@@ -15,6 +15,9 @@ import { requireAdmin } from "~/lib/requireAdmin";
  *
  * Each public function is a plain async wrapper around an internal
  * createServerFn, preserving the original call signature.
+ *
+ * dbGetDownloads returns whatever rows the owner actually has, including
+ * none — no first-visit demo seeding.
  */
 
 export interface DownloadRecord {
@@ -51,50 +54,6 @@ function rowToRecord(row: DownloadRow): DownloadRecord {
   };
 }
 
-/** Demo records seeded for a first-time owner — same 3 records that used to
- *  be hardcoded in seedDemoDownloads(), now inserted per-owner on first
- *  read instead of once per browser localStorage blob. */
-function demoRecords(userId: string): NewDownloadRow[] {
-  const now = Date.now();
-  const daysAgo = (n: number) => new Date(now - n * 24 * 60 * 60 * 1000);
-
-  return [
-    {
-      userId,
-      productId: "product-1",
-      productTitle: "The Resilient Mind",
-      productAuthor: "Dr. Amara Osei",
-      productType: "ebook",
-      price: "14.99",
-      purchasedAt: daysAgo(3),
-      lastDownloadedAt: daysAgo(1),
-      downloadCount: 2,
-    },
-    {
-      userId,
-      productId: "product-2",
-      productTitle: "Mindful Moments",
-      productAuthor: "Lena K. Hart",
-      productType: "audiobook",
-      price: "9.99",
-      purchasedAt: daysAgo(7),
-      lastDownloadedAt: daysAgo(5),
-      downloadCount: 1,
-    },
-    {
-      userId,
-      productId: "product-3",
-      productTitle: "Wellness Mastery",
-      productAuthor: "Dr. Marcus Vega",
-      productType: "video",
-      price: "24.99",
-      purchasedAt: daysAgo(1),
-      lastDownloadedAt: null,
-      downloadCount: 0,
-    },
-  ];
-}
-
 /* ─── Internal server functions ─── */
 
 const dbGetDownloads = createServerFn({ method: "GET" }).handler(
@@ -102,11 +61,7 @@ const dbGetDownloads = createServerFn({ method: "GET" }).handler(
     const userId = await getUserId();
     const database = db();
     const rows = await database.select().from(downloads).where(eq(downloads.userId, userId));
-    if (rows.length > 0) return rows.map(rowToRecord);
-
-    // First visit for this owner — seed the demo records.
-    const seeded = await database.insert(downloads).values(demoRecords(userId)).returning();
-    return seeded.map(rowToRecord);
+    return rows.map(rowToRecord);
   },
 );
 

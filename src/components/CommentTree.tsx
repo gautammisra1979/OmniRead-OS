@@ -4,7 +4,6 @@ import {
   getCommentsForProduct,
   addComment,
   replyToComment,
-  seedDemoComments,
   type Comment,
 } from "~/data/comments";
 
@@ -213,20 +212,6 @@ export function CommentTree({ productId }: CommentTreeProps) {
       cancelled = true;
     };
   }, [productId, refreshKey]);
-
-  // Seed demo comments if no comments exist
-  useEffect(() => {
-    let cancelled = false;
-    getCommentsForProduct(productId).then((existing) => {
-      if (cancelled || existing.length > 0) return;
-      seedDemoComments(productId).then(() => {
-        if (!cancelled) setRefreshKey((k) => k + 1);
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [productId]);
 
   const handleAddComment = useCallback(
     (author: string, body: string) => {

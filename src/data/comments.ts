@@ -197,19 +197,6 @@ export async function deleteComment(commentId: string): Promise<void> {
   return dbDeleteComment({ data: commentId });
 }
 
-/** Seed demo comments for a product */
-export async function seedDemoComments(productId: string): Promise<void> {
-  const existing = await getCommentsForProduct(productId);
-  if (existing.length > 0) return; // Only seed if empty
-
-  const top1 = await addComment(productId, "ReaderJane", "This was exactly what I needed! The exercises are very practical.");
-  await replyToComment(top1.id, "AuthorMike", "So glad you enjoyed it! The weekly journaling prompts really helped me too.");
-  const top2 = await addComment(productId, "BookLover42", "Great content but I wish there was more on advanced topics.");
-  await replyToComment(top2.id, "DrAmara", "Thanks for the feedback — I'm working on an advanced follow-up course!");
-  await replyToComment(top2.id, "CuriousMind", "Agreed! The beginner section was excellent though.");
-  await addComment(productId, "NightOwlReader", "Started this yesterday and I'm already on chapter 8. Can't put it down!");
-}
-
 /** Get all unique product IDs that have comments */
 export async function getProductsWithComments(): Promise<string[]> {
   return dbGetProductsWithComments();
