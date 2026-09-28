@@ -70,7 +70,6 @@ const dbSubmitRefundClaim = createServerFn({ method: "POST" })
     (input: {
       downloadId: string;
       reason: string;
-      refundLoyaltyPoints: number;
     }) => input,
   )
   .handler(async ({ data: input }): Promise<RefundClaim> => {
@@ -100,7 +99,12 @@ const dbSubmitRefundClaim = createServerFn({ method: "POST" })
         productTitle: download.productTitle,
         transactionId: download.sessionId,
         reason: input.reason,
-        refundLoyaltyPoints: input.refundLoyaltyPoints,
+        // No per-purchase points are awarded anywhere today (see
+        // Bug Report Log "Refund claim claws back the buyer's entire loyalty
+        // balance"), so a refund claws back nothing. When per-purchase
+        // earning is built, derive this value server-side from the points
+        // that specific download earned — never from client input.
+        refundLoyaltyPoints: 0,
       })
       .returning();
     return rowToClaim(row);
@@ -198,13 +202,11 @@ export async function submitRefundClaim(input: {
   productTitle: string;
   transactionId: string;
   reason: string;
-  refundLoyaltyPoints: number;
 }): Promise<RefundClaim> {
   return dbSubmitRefundClaim({
     data: {
       downloadId: input.downloadId,
       reason: input.reason,
-      refundLoyaltyPoints: input.refundLoyaltyPoints,
     },
   });
 }

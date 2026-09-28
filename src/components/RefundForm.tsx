@@ -1,6 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { getCurrentPoints } from "~/data/loyalty";
 import { submitRefundClaim } from "~/data/refunds";
 
 interface RefundFormProps {
@@ -18,9 +17,6 @@ export function RefundForm({ downloadId, productId, productTitle, transactionId,
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  const [loyaltyPoints, setLoyaltyPoints] = useState(0);
-  useEffect(() => { getCurrentPoints().then(setLoyaltyPoints); }, []);
-
   const handleSubmit = useCallback(async () => {
     if (!reason.trim()) return;
     setSubmitting(true);
@@ -32,11 +28,10 @@ export function RefundForm({ downloadId, productId, productTitle, transactionId,
       productTitle,
       transactionId,
       reason: reason.trim(),
-      refundLoyaltyPoints: loyaltyPoints,
     });
     setSubmitted(true);
     setSubmitting(false);
-  }, [reason, downloadId, productId, productTitle, transactionId, loyaltyPoints]);
+  }, [reason, downloadId, productId, productTitle, transactionId]);
 
   if (submitted) {
     return (
@@ -95,13 +90,6 @@ export function RefundForm({ downloadId, productId, productTitle, transactionId,
           placeholder={t("checkout.refundReasonPlaceholder")}
           aria-label={t("checkout.refundReason")}
         />
-
-        {/* Points notice */}
-        {loyaltyPoints > 0 && (
-          <p className="mt-3 text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
-            {t("checkout.refundPointsNotice").replace("{points}", String(loyaltyPoints))}
-          </p>
-        )}
 
         {/* Actions */}
         <div className="mt-5 flex gap-3">

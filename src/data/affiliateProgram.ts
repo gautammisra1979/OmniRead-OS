@@ -122,7 +122,7 @@ function daysFromNow(days: number): Date {
  * eligible row is atomically flipped to `converted` (a conditional update
  * guards against a concurrent caller already resolving the same row) and a
  * matching loyaltyLedger bonus entry is inserted directly — loyalty.ts's own
- * addLedgerEntry() always credits the *calling* session's own userId via
+ * redeemPoints() always credits the *calling* session's own userId via
  * getUserId(), not an arbitrary target user, so it can't be reused here.
  *
  * Shared by dbResolvePendingLedgerEntries, dbGetPayableSummary, and
@@ -434,7 +434,7 @@ const dbVoidAffiliateLedgerForDownload = createServerFn({ method: "POST" })
  * already-legitimately-earned amount into that SAME affiliate's own
  * account, on that affiliate's own standing payoutPreference — it can never
  * fabricate value, redirect it, or bypass the hold period. Same reasoning
- * as dbAddCredits/dbAddLedgerEntry's documented ungated status.
+ * as dbAddCredits/dbRedeemPoints's documented ungated status.
  */
 const dbResolvePendingLedgerEntries = createServerFn({ method: "POST" })
   .validator((affiliateId: string) => affiliateId)

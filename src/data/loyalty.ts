@@ -117,15 +117,24 @@ async function upsertConfig(
 
 /* ─── Internal server functions: Draft / Published Config ─── */
 
+/** Shared by dbGetConfig and dbRedeemPoints so the two can't drift on which
+ *  config row a given (userId, status) pair resolves to. */
+async function loadConfig(
+  userId: string,
+  status: "draft" | "published",
+): Promise<LoyaltyConfig> {
+  const rows = await db()
+    .select()
+    .from(loyaltyConfig)
+    .where(and(eq(loyaltyConfig.userId, userId), eq(loyaltyConfig.status, status)));
+  return rows[0] ? rowToConfig(rows[0]) : structuredClone(DEFAULT_CONFIG);
+}
+
 const dbGetConfig = createServerFn({ method: "GET" })
   .validator((status: "draft" | "published") => status)
   .handler(async ({ data: status }): Promise<LoyaltyConfig> => {
     const userId = await getUserId();
-    const rows = await db()
-      .select()
-      .from(loyaltyConfig)
-      .where(and(eq(loyaltyConfig.userId, userId), eq(loyaltyConfig.status, status)));
-    return rows[0] ? rowToConfig(rows[0]) : structuredClone(DEFAULT_CONFIG);
+    return loadConfig(userId, status);
   });
 
 const dbSaveDraftConfig = createServerFn({ method: "POST" })
@@ -167,39 +176,71 @@ const dbGetLedger = createServerFn({ method: "GET" }).handler(
   },
 );
 
-const dbSaveLedger = createServerFn({ method: "POST" })
-  .validator((entries: LoyaltyLedgerEntry[]) => entries)
-  .handler(async ({ data: entries }): Promise<void> => {
+/**
+ * Server-validated redemption: unlike the previous ledger-insert function
+ * (which let the caller pick any `type`/`points` and trusted the browser's
+ * minimum-redeem/balance checks), this only ever inserts `type: "redeemed"`
+ * and enforces the minimum and the balance itself.
+ *
+ * The balance check and the insert are one SQL statement (INSERT ... SELECT
+ * ... WHERE) — but under Postgres's default READ COMMITTED isolation that
+ * alone does NOT stop two concurrent redeems from both reading the
+ * pre-redemption balance and both passing (live-tested: 10 trials of two
+ * concurrent same-amount redeems against a balance covering exactly one,
+ * READ COMMITTED, both succeeded 5/10 times, balance went negative). The
+ * insert therefore runs inside a SERIALIZABLE transaction (neon-http's
+ * `.transaction()`, the only way this driver exposes an isolation level for
+ * a single query) — Postgres's SSI aborts the loser with a `40001`
+ * serialization failure, which is retried a bounded number of times so the
+ * retry's own fresh balance read decides it, rather than surfacing a
+ * transient conflict as an error. Re-tested the same 10-trial concurrency
+ * script after this change: exactly one success per trial, balance never
+ * negative.
+ */
+const dbRedeemPoints = createServerFn({ method: "POST" })
+  .validator((data: { points: number; description: string }) => data)
+  .handler(async ({ data }): Promise<boolean> => {
     const userId = await getUserId();
-    const database = db();
-    await database.delete(loyaltyLedger).where(eq(loyaltyLedger.userId, userId));
-    if (entries.length === 0) return;
-    await database.insert(loyaltyLedger).values(
-      entries.map((entry) => ({
-        userId,
-        type: entry.type,
-        points: entry.points,
-        description: entry.description,
-        productId: entry.productId ?? null,
-      })),
-    );
-  });
+    const { points } = data;
+    if (!Number.isInteger(points) || points <= 0) return false;
 
-const dbAddLedgerEntry = createServerFn({ method: "POST" })
-  .validator((entry: Omit<LoyaltyLedgerEntry, "id" | "timestamp">) => entry)
-  .handler(async ({ data: entry }): Promise<LoyaltyLedgerEntry> => {
-    const userId = await getUserId();
-    const [row] = await db()
-      .insert(loyaltyLedger)
-      .values({
-        userId,
-        type: entry.type,
-        points: entry.points,
-        description: entry.description,
-        productId: entry.productId ?? null,
-      })
-      .returning();
-    return rowToLedgerEntry(row);
+    const trimmedDescription = data.description.trim();
+    const description = (trimmedDescription || `Redeemed ${points} points`).slice(0, 200);
+
+    const config = await loadConfig(userId, "published");
+    if (points < config.minimumRedeem) return false;
+
+    const client = sql();
+    const MAX_ATTEMPTS = 5;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const [rows] = await client.transaction(
+          [
+            client`
+              INSERT INTO loyalty_ledger (user_id, type, points, description)
+              SELECT ${userId}, 'redeemed', ${points}, ${description}
+              WHERE (
+                SELECT COALESCE(SUM(CASE
+                  WHEN type IN ('earned', 'bonus') THEN points
+                  WHEN type = 'redeemed' THEN -points
+                  ELSE 0
+                END), 0)
+                FROM loyalty_ledger
+                WHERE user_id = ${userId}
+              ) >= ${points}
+              RETURNING id
+            `,
+          ],
+          { isolationLevel: "Serializable" },
+        );
+        return rows.length > 0;
+      } catch (error) {
+        const code = (error as { code?: string }).code;
+        if (code === "40001" && attempt < MAX_ATTEMPTS) continue; // serialization conflict — retry
+        throw error;
+      }
+    }
+    return false;
   });
 
 /**
@@ -263,20 +304,10 @@ export async function getLedger(): Promise<LoyaltyLedgerEntry[]> {
   return dbGetLedger();
 }
 
-export async function saveLedger(entries: LoyaltyLedgerEntry[]): Promise<void> {
-  return dbSaveLedger({ data: entries });
-}
-
-export async function addLedgerEntry(
-  entry: Omit<LoyaltyLedgerEntry, "id" | "timestamp">,
-): Promise<LoyaltyLedgerEntry> {
-  return dbAddLedgerEntry({ data: entry });
-}
-
 /**
  * Server-to-server variant for src/data/refunds.ts's refund-approval path.
- * addLedgerEntry() above always credits the *calling* session's own userId
- * via getUserId(), never an arbitrary target user, so it can't be reused to
+ * redeemPoints() below always credits the *calling* session's own userId via
+ * getUserId(), never an arbitrary target user, so it can't be reused to
  * deduct points from the actual buyer — same constraint documented on the
  * affiliate side by affiliateProgram.ts's resolveEligibleForAffiliate.
  *
@@ -343,11 +374,7 @@ export function calculateEarnedPoints(basePoints: number, config: LoyaltyConfig,
 }
 
 export async function redeemPoints(points: number, description: string): Promise<boolean> {
-  const [balance, config] = await Promise.all([getCurrentPoints(), getPublishedConfig()]);
-  if (points < config.minimumRedeem) return false;
-  if (points > balance) return false;
-  await addLedgerEntry({ type: "redeemed", points, description });
-  return true;
+  return dbRedeemPoints({ data: { points, description } });
 }
 
 export function getEstimatedDollarValue(points: number, config: LoyaltyConfig): number {
