@@ -1,6 +1,16 @@
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { sql } from "~/db";
 
+// Chance, on any given checkRateLimit call, that this call also prunes
+// expired rows — not a security-sensitive choice, plain Math.random() is fine.
+const PRUNE_PROBABILITY = 0.01;
+// How old a row's window_start must be before it's eligible for pruning.
+// Must stay comfortably larger than the longest window any caller uses
+// (currently 60 seconds) — an expired row is already treated exactly like a
+// missing row by checkRateLimit's upsert, so this can never affect limiter
+// behaviour, only table size.
+const PRUNE_AFTER_SECONDS = 3600;
+
 /**
  * IP extraction matches Better Auth's own default (@better-auth/core's
  * getIp / DEFAULT_IP_HEADERS): x-forwarded-for is the only header checked,
@@ -48,6 +58,15 @@ export async function checkRateLimit(
     RETURNING count
   `;
   const count = Number(rows[0]?.count ?? 1);
+
+  if (Math.random() < PRUNE_PROBABILITY) {
+    try {
+      await sql()`DELETE FROM rate_limit_hits WHERE window_start < now() - (${PRUNE_AFTER_SECONDS} || ' seconds')::interval`;
+    } catch (err) {
+      console.error("rate_limit_hits prune failed:", err);
+    }
+  }
+
   return count <= max;
 }
 

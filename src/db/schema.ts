@@ -10,6 +10,7 @@ import {
   numeric,
   primaryKey,
   uniqueIndex,
+  index,
 } from "drizzle-orm/pg-core";
 import { user } from "~/db/auth-schema";
 
@@ -523,11 +524,17 @@ export type NewEmailSendFailureRow = typeof emailSendFailures.$inferInsert;
  * own rate_limit table — see auth-schema.ts). See src/lib/rateLimit.ts for
  * the atomic upsert this table backs.
  */
-export const rateLimitHits = pgTable("rate_limit_hits", {
-  key: text("key").primaryKey(), // e.g. "admin-passcode:global" or "comment-post:203.0.113.4"
-  count: integer("count").notNull().default(1),
-  windowStart: timestamp("window_start", { withTimezone: true }).notNull().defaultNow(),
-});
+export const rateLimitHits = pgTable(
+  "rate_limit_hits",
+  {
+    key: text("key").primaryKey(), // e.g. "admin-passcode:global" or "comment-post:203.0.113.4"
+    count: integer("count").notNull().default(1),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    windowStartIdx: index("rate_limit_hits_window_start_idx").on(table.windowStart),
+  }),
+);
 
 export type RateLimitHitRow = typeof rateLimitHits.$inferSelect;
 export type NewRateLimitHitRow = typeof rateLimitHits.$inferInsert;
