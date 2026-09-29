@@ -16,6 +16,7 @@ export function MediaPlayer({ product }: MediaPlayerProps) {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const [, setCurrentTime] = useState(0);
   const [, setDuration] = useState(0);
+  const [restoredTime, setRestoredTime] = useState(0);
   const [vttUrl, setVttUrl] = useState("");
   const [cues, setCues] = useState<VTTCue[]>([]);
   const [activeCueIdx, setActiveCueIdx] = useState(-1);
@@ -44,10 +45,18 @@ export function MediaPlayer({ product }: MediaPlayerProps) {
   // Restore playback position
   useEffect(() => {
     if (!mediaRef.current) return;
-    const saved = getMediaProgress(product.id);
-    if (saved > 0 && mediaRef.current) {
-      mediaRef.current.currentTime = saved;
-    }
+    let cancelled = false;
+    const productId = product.id;
+    getMediaProgress(productId).then((saved) => {
+      if (cancelled || product.id !== productId || !mediaRef.current) return;
+      if (saved > 0) {
+        mediaRef.current.currentTime = saved;
+        setRestoredTime(saved);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [product.id, vttUrl]);
 
   // Timeupdate handler
@@ -61,7 +70,9 @@ export function MediaPlayer({ product }: MediaPlayerProps) {
     // Debounced save every 5 seconds
     if (!saveTimerRef.current) {
       saveTimerRef.current = setTimeout(() => {
-        saveMediaProgress(product.id, ct, dur);
+        saveMediaProgress(product.id, ct, dur).catch((err) => {
+          console.error("Failed to save media progress:", err);
+        });
         saveTimerRef.current = null;
       }, 5000);
     }
@@ -142,9 +153,9 @@ export function MediaPlayer({ product }: MediaPlayerProps) {
       </div>
 
       {/* Progress restored notice */}
-      {getMediaProgress(product.id) > 0 && (
+      {restoredTime > 0 && (
         <div className="px-4 py-2 text-xs" style={{ backgroundColor: "color-mix(in srgb, var(--color-primary,#6366f1) 15%, transparent)", color: "var(--color-primary,#6366f1)" }}>
-          {t("media.progressRestored").replace("{time}", formatTime(getMediaProgress(product.id)))}
+          {t("media.progressRestored").replace("{time}", formatTime(restoredTime))}
         </div>
       )}
 

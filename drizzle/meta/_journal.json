@@ -162,6 +162,13 @@
       "when": 1790597745127,
       "tag": "0022_soft_ken_ellis",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790641792426,
+      "tag": "0023_harsh_supreme_intelligence",
+      "breakpoints": true
     }
   ]
 }

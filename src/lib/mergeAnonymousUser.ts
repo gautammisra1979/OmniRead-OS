@@ -11,6 +11,7 @@ import {
   refundClaims,
   affiliateReferrals,
   affiliateProfiles,
+  mediaProgress,
 } from "~/db/schema";
 
 /**
@@ -22,7 +23,9 @@ import {
  * reassign to `realUserId` is deleted automatically along with the
  * anonymous user. That cascade is what implements "discard the anonymous
  * row" for the conflict cases below: we simply don't touch those rows, and
- * they disappear on their own.
+ * they disappear on their own. `loyaltyConfig` and `mediaProgress` are both
+ * composite-key tables (userId plus a second column), so their conflict
+ * checks are done per-row rather than once per user.
  *
  * Manual verification (no automated test harness for this yet):
  * 1. Load the site with no session — the anonymous plugin signs you in
@@ -71,6 +74,8 @@ export async function mergeAnonymousUserData(
       realReferralRows,
       anonAffiliateProfileRows,
       realAffiliateProfileRows,
+      anonMediaProgressRows,
+      realMediaProgressRows,
     ] = await Promise.all([
         database.select().from(cartState).where(eq(cartState.userId, anonUserId)),
         database.select().from(cartState).where(eq(cartState.userId, realUserId)),
@@ -82,6 +87,8 @@ export async function mergeAnonymousUserData(
         database.select().from(affiliateReferrals).where(eq(affiliateReferrals.userId, realUserId)),
         database.select().from(affiliateProfiles).where(eq(affiliateProfiles.userId, anonUserId)),
         database.select().from(affiliateProfiles).where(eq(affiliateProfiles.userId, realUserId)),
+        database.select().from(mediaProgress).where(eq(mediaProgress.userId, anonUserId)),
+        database.select().from(mediaProgress).where(eq(mediaProgress.userId, realUserId)),
       ]);
 
     const conditionalOps: (ReturnType<typeof database.update> | ReturnType<typeof database.delete>)[] = [];
@@ -184,6 +191,23 @@ export async function mergeAnonymousUserData(
           .set({ userId: realUserId })
           .where(eq(affiliateProfiles.userId, anonUserId)),
       );
+    }
+
+    // mediaProgress: composite primary key (userId, productId) — reassign
+    // per product; where the real user already has a saved position for
+    // that same product, leave the anonymous row alone so it cascades away
+    // instead of attempting to merge two playback positions (the real
+    // account's position wins).
+    const realMediaProductIds = new Set(realMediaProgressRows.map((row) => row.productId));
+    for (const row of anonMediaProgressRows) {
+      if (!realMediaProductIds.has(row.productId)) {
+        conditionalOps.push(
+          database
+            .update(mediaProgress)
+            .set({ userId: realUserId })
+            .where(and(eq(mediaProgress.userId, anonUserId), eq(mediaProgress.productId, row.productId))),
+        );
+      }
     }
 
     const ops = [

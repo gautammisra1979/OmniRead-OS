@@ -538,3 +538,30 @@ export const rateLimitHits = pgTable(
 
 export type RateLimitHitRow = typeof rateLimitHits.$inferSelect;
 export type NewRateLimitHitRow = typeof rateLimitHits.$inferInsert;
+
+/**
+ * Session 67: per-visitor media playback position, replacing the old
+ * localStorage-only src/data/mediaProgress.ts. Composite primary key
+ * (userId, productId) — one saved position per visitor per product.
+ * `positionSeconds` (not `currentTime`): `current_time` is a reserved SQL
+ * keyword in Postgres, and an unquoted `SELECT current_time` silently
+ * returns the server clock instead of this column.
+ */
+export const mediaProgress = pgTable(
+  "media_progress",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    productId: text("product_id").notNull(),
+    positionSeconds: doublePrecision("position_seconds").notNull(),
+    duration: doublePrecision("duration").notNull(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.productId] }),
+  }),
+);
+
+export type MediaProgressRow = typeof mediaProgress.$inferSelect;
+export type NewMediaProgressRow = typeof mediaProgress.$inferInsert;
