@@ -11,6 +11,9 @@ import {
   affiliateReferrals,
   affiliateProfiles,
   mediaProgress,
+  challengeProgress,
+  challengeSettings,
+  challengeReviews,
 } from "~/db/schema";
 
 /**
@@ -22,9 +25,10 @@ import {
  * reassign to `realUserId` is deleted automatically along with the
  * anonymous user. That cascade is what implements "discard the anonymous
  * row" for the conflict cases below: we simply don't touch those rows, and
- * they disappear on their own. `mediaProgress` is a composite-key table
- * (userId plus a second column), so its conflict check is done per-row
- * rather than once per user.
+ * they disappear on their own. `mediaProgress`, `challengeProgress` and
+ * `challengeReviews` are composite-key tables (userId plus a second column),
+ * so their conflict checks are done per-row rather than once per user.
+ * `challengeSettings` is one row per user, like `cartState`.
  *
  * Manual verification (no automated test harness for this yet):
  * 1. Load the site with no session — the anonymous plugin signs you in
@@ -55,8 +59,8 @@ export async function mergeAnonymousUserData(
 
   try {
     // Reads that decide the branching below for the one-row-per-user
-    // tables (cartState, wallet) and the composite-key table
-    // (mediaProgress). These run ahead of the atomic write batch — the
+    // tables (cartState, wallet, challengeSettings) and the composite-key
+    // tables (mediaProgress, challengeProgress, challengeReviews). These run ahead of the atomic write batch — the
     // neon-http driver has no interactive/read-then-write transaction
     // support (see the comment on `database.batch(...)` below), so this
     // read-then-decide step isn't itself covered by the same atomicity
@@ -73,6 +77,12 @@ export async function mergeAnonymousUserData(
       realAffiliateProfileRows,
       anonMediaProgressRows,
       realMediaProgressRows,
+      anonChallengeProgressRows,
+      realChallengeProgressRows,
+      anonChallengeSettingsRows,
+      realChallengeSettingsRows,
+      anonChallengeReviewRows,
+      realChallengeReviewRows,
     ] = await Promise.all([
         database.select().from(cartState).where(eq(cartState.userId, anonUserId)),
         database.select().from(cartState).where(eq(cartState.userId, realUserId)),
@@ -84,6 +94,12 @@ export async function mergeAnonymousUserData(
         database.select().from(affiliateProfiles).where(eq(affiliateProfiles.userId, realUserId)),
         database.select().from(mediaProgress).where(eq(mediaProgress.userId, anonUserId)),
         database.select().from(mediaProgress).where(eq(mediaProgress.userId, realUserId)),
+        database.select().from(challengeProgress).where(eq(challengeProgress.userId, anonUserId)),
+        database.select().from(challengeProgress).where(eq(challengeProgress.userId, realUserId)),
+        database.select().from(challengeSettings).where(eq(challengeSettings.userId, anonUserId)),
+        database.select().from(challengeSettings).where(eq(challengeSettings.userId, realUserId)),
+        database.select().from(challengeReviews).where(eq(challengeReviews.userId, anonUserId)),
+        database.select().from(challengeReviews).where(eq(challengeReviews.userId, realUserId)),
       ]);
 
     const conditionalOps: (ReturnType<typeof database.update> | ReturnType<typeof database.delete>)[] = [];
@@ -185,6 +201,68 @@ export async function mergeAnonymousUserData(
             .update(mediaProgress)
             .set({ userId: realUserId })
             .where(and(eq(mediaProgress.userId, anonUserId), eq(mediaProgress.productId, row.productId))),
+        );
+      }
+    }
+
+    // challengeProgress: composite primary key (userId, productId) — same
+    // per-product handling as mediaProgress. Reassign each anonymous row only
+    // when the real user has no challenge progress for that product; where
+    // both have one, the anonymous row is left alone to cascade-delete and
+    // the real account's progress wins.
+    const realChallengeProgressProductIds = new Set(
+      realChallengeProgressRows.map((row) => row.productId),
+    );
+    for (const row of anonChallengeProgressRows) {
+      if (!realChallengeProgressProductIds.has(row.productId)) {
+        conditionalOps.push(
+          database
+            .update(challengeProgress)
+            .set({ userId: realUserId })
+            .where(
+              and(
+                eq(challengeProgress.userId, anonUserId),
+                eq(challengeProgress.productId, row.productId),
+              ),
+            ),
+        );
+      }
+    }
+
+    // challengeSettings: userId is the primary key, one row per user (pacing
+    // config plus reminder interval) — same handling as cartState. Reassign
+    // the anonymous row only when the real user has none yet; otherwise the
+    // real account's settings win and the anonymous row cascade-deletes.
+    if (anonChallengeSettingsRows.length > 0 && realChallengeSettingsRows.length === 0) {
+      conditionalOps.push(
+        database
+          .update(challengeSettings)
+          .set({ userId: realUserId })
+          .where(eq(challengeSettings.userId, anonUserId)),
+      );
+    }
+
+    // challengeReviews: one review per (userId, productId), enforced by a
+    // unique constraint — so reassigning a row the real user already has a
+    // review for would fail the whole batch. Reassign per product only when
+    // the real user has no review for it; where both reviewed the same
+    // product, the real account's review wins and the anonymous row
+    // cascade-deletes.
+    const realChallengeReviewProductIds = new Set(
+      realChallengeReviewRows.map((row) => row.productId),
+    );
+    for (const row of anonChallengeReviewRows) {
+      if (!realChallengeReviewProductIds.has(row.productId)) {
+        conditionalOps.push(
+          database
+            .update(challengeReviews)
+            .set({ userId: realUserId })
+            .where(
+              and(
+                eq(challengeReviews.userId, anonUserId),
+                eq(challengeReviews.productId, row.productId),
+              ),
+            ),
         );
       }
     }

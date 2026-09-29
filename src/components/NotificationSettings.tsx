@@ -11,16 +11,32 @@ const INTERVAL_OPTIONS = [1, 2, 3, 4, 5];
 
 export function NotificationSettings() {
   const { t } = useLanguage();
-  const [interval, setIntervalState] = useState(getReminderInterval);
+  const [interval, setIntervalState] = useState(1);
   const [copied, setCopied] = useState("");
 
+  // Load the saved interval; nothing is written until the visitor changes it
   useEffect(() => {
-    saveReminderInterval(interval);
-  }, [interval]);
+    let cancelled = false;
+    getReminderInterval()
+      .then((saved) => {
+        if (!cancelled) setIntervalState(saved);
+      })
+      .catch((err) => console.error("Failed to load reminder interval:", err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const compileMessage = useCallback((): string => {
-    const config = getPacingConfig();
-    const entries = getProgressEntries();
+  const handleIntervalChange = useCallback((days: number) => {
+    setIntervalState(days);
+    saveReminderInterval(days).catch((err) => {
+      console.error("Failed to save reminder interval:", err);
+    });
+  }, []);
+
+  const compileMessage = useCallback(async (): Promise<string> => {
+    const config = await getPacingConfig();
+    const entries = await getProgressEntries();
     const lastEntry = entries.length > 0 ? entries[entries.length - 1] : null;
     const bookTitle = lastEntry?.productTitle ?? "your book";
     const pacing = config?.dailyTarget?.toString() ?? "some";
@@ -31,7 +47,7 @@ export function NotificationSettings() {
   }, []);
 
   const handleSendReminder = useCallback(async () => {
-    const msg = compileMessage();
+    const msg = await compileMessage();
 
     // Try Web Share API first (mobile SMS)
     if (navigator.share) {
@@ -90,7 +106,7 @@ export function NotificationSettings() {
             type="button"
             role="radio"
             aria-checked={interval === days}
-            onClick={() => setIntervalState(days)}
+            onClick={() => handleIntervalChange(days)}
             className={`rounded-lg border px-4 py-2 text-sm font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
               interval === days
                 ? "border-[var(--color-primary,#6366f1)] bg-[var(--color-primary,#6366f1)]/10 text-[var(--color-primary,#6366f1)]"

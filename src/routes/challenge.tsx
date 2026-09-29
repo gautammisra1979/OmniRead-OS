@@ -4,7 +4,7 @@ import { useLanguage } from "~/components/LanguageProvider";
 import { LicenseGate } from "~/components/LicenseGate";
 import { getCatalogItems } from "~/db/queries";
 import { type CatalogItem } from "~/data/catalog";
-import { getProgressEntries, getReviews } from "~/data/progress";
+import { getProgressEntries, getReviews, type ProgressEntry, type ReviewData } from "~/data/progress";
 import { ProgressTracker } from "~/components/ProgressTracker";
 import { NotificationSettings } from "~/components/NotificationSettings";
 import { ReviewForm } from "~/components/ReviewForm";
@@ -18,7 +18,9 @@ function ChallengePage() {
   const { t } = useLanguage();
   const [activeProductId, setActiveProductId] = useState<string | null>(null);
   const [reviewProductId, setReviewProductId] = useState<string | null>(null);
-  const [, setReviewRefresh] = useState(0);
+  const [reviewRefresh, setReviewRefresh] = useState(0);
+  const [progressEntries, setProgressEntries] = useState<ProgressEntry[]>([]);
+  const [allReviews, setAllReviews] = useState<ReviewData[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
 
   useEffect(() => {
@@ -31,12 +33,24 @@ function ChallengePage() {
     };
   }, []);
 
-  const progressEntries = getProgressEntries();
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([getProgressEntries(), getReviews()])
+      .then(([entries, reviews]) => {
+        if (cancelled) return;
+        setProgressEntries(entries);
+        setAllReviews(reviews);
+      })
+      .catch((err) => console.error("Failed to load challenge data:", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [reviewRefresh]);
+
   const trackedProducts = progressEntries
     .map((e) => catalog.find((c) => c.id === e.productId))
     .filter(Boolean) as typeof catalog;
 
-  const allReviews = getReviews();
   const publicReviews = allReviews.filter((r) => !r.isPrivate);
 
   const activeProduct = activeProductId ? catalog.find((c) => c.id === activeProductId) : null;
@@ -137,7 +151,7 @@ function ChallengePage() {
                         className="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors hover:opacity-80"
                         style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}
                       >
-                        {getReviews().find((r) => r.productId === product.id)
+                        {allReviews.find((r) => r.productId === product.id)
                           ? t("challenge.editReview")
                           : t("challenge.writeReview")}
                       </button>

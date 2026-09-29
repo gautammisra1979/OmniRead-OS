@@ -28,17 +28,23 @@ export function ReviewForm({ productId, productTitle, onClose, onSaved }: Review
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const existingReview = getReviewForProduct(productId);
-    if (existingReview) {
-      setExisting(existingReview);
-      setRating(existingReview.rating);
-      setKeyTakeaway(existingReview.keyTakeaway);
-      setReviewText(existingReview.reviewText);
-      setActionPlan(existingReview.actionPlan);
-      setPacingEval(existingReview.pacingEval);
-      setIsPrivate(existingReview.isPrivate);
-      setHasSpoiler(existingReview.hasSpoiler);
-    }
+    let cancelled = false;
+    getReviewForProduct(productId)
+      .then((existingReview) => {
+        if (cancelled || !existingReview) return;
+        setExisting(existingReview);
+        setRating(existingReview.rating);
+        setKeyTakeaway(existingReview.keyTakeaway);
+        setReviewText(existingReview.reviewText);
+        setActionPlan(existingReview.actionPlan);
+        setPacingEval(existingReview.pacingEval);
+        setIsPrivate(existingReview.isPrivate);
+        setHasSpoiler(existingReview.hasSpoiler);
+      })
+      .catch((err) => console.error("Failed to load review:", err));
+    return () => {
+      cancelled = true;
+    };
   }, [productId]);
 
   // Focus trap
@@ -75,7 +81,7 @@ export function ReviewForm({ productId, productTitle, onClose, onSaved }: Review
     return () => document.removeEventListener("keydown", handleEsc);
   }, [onClose]);
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     if (rating === 0) return;
     const now = new Date().toISOString();
     const review: ReviewData = {
@@ -92,7 +98,12 @@ export function ReviewForm({ productId, productTitle, onClose, onSaved }: Review
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
-    saveReview(review);
+    try {
+      await saveReview(review);
+    } catch (err) {
+      console.error("Failed to save review:", err);
+      return;
+    }
     onSaved();
     onClose();
   }, [rating, existing, productId, productTitle, keyTakeaway, reviewText, actionPlan, pacingEval, isPrivate, hasSpoiler, onSaved, onClose]);

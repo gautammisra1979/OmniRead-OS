@@ -18,8 +18,8 @@ interface ExportPayload {
   exportedAt: string;
   source: string;
   catalog: Awaited<ReturnType<typeof getCatalogItems>>;
-  progress: ReturnType<typeof getProgressEntries>;
-  reviews: ReturnType<typeof getReviews>;
+  progress: Awaited<ReturnType<typeof getProgressEntries>>;
+  reviews: Awaited<ReturnType<typeof getReviews>>;
   downloads: Awaited<ReturnType<typeof getDownloads>>;
   chatHistory: ReturnType<typeof getChatHistory>;
   licenseTier: Awaited<ReturnType<typeof getLicenseTier>>;
@@ -55,8 +55,8 @@ async function collectAllData(): Promise<ExportPayload> {
     exportedAt: new Date().toISOString(),
     source: "OmniMedia OS — Offboarding Export",
     catalog: await getCatalogItems(),
-    progress: getProgressEntries(),
-    reviews: getReviews(),
+    progress: await getProgressEntries(),
+    reviews: await getReviews(),
     downloads: await getDownloads(),
     chatHistory: getChatHistory(),
     licenseTier: await getLicenseTier(),
@@ -126,11 +126,19 @@ export function OffboardingCenter() {
   const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
   const [purging, setPurging] = useState(false);
   const [catalogCount, setCatalogCount] = useState(0);
+  const [progressCount, setProgressCount] = useState(0);
+  const [reviewCount, setReviewCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     getCatalogItems().then((items) => {
       if (!cancelled) setCatalogCount(items.length);
+    });
+    getProgressEntries().then((entries) => {
+      if (!cancelled) setProgressCount(entries.length);
+    });
+    getReviews().then((reviews) => {
+      if (!cancelled) setReviewCount(reviews.length);
     });
     return () => {
       cancelled = true;
@@ -170,8 +178,6 @@ export function OffboardingCenter() {
   }, []);
 
   // Count data items
-  const progressCount = getProgressEntries().length;
-  const reviewCount = getReviews().length;
   const hasData = catalogCount > 0 || progressCount > 0 || reviewCount > 0;
 
   return (

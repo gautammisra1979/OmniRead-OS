@@ -10,6 +10,7 @@ import {
   numeric,
   primaryKey,
   uniqueIndex,
+  unique,
   index,
 } from "drizzle-orm/pg-core";
 import { user } from "~/db/auth-schema";
@@ -563,3 +564,82 @@ export const mediaProgress = pgTable(
 
 export type MediaProgressRow = typeof mediaProgress.$inferSelect;
 export type NewMediaProgressRow = typeof mediaProgress.$inferInsert;
+
+/**
+ * Session 68: 30-Day Reading Challenge state, replacing the localStorage-only
+ * src/data/progress.ts. Per-product progress: composite primary key
+ * (userId, productId). `format` is plain text (ebook / audiobook / video),
+ * validated server-side, not a Postgres enum.
+ */
+export const challengeProgress = pgTable(
+  "challenge_progress",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    productId: text("product_id").notNull(),
+    productTitle: text("product_title").notNull(),
+    format: text("format").notNull(),
+    totalUnits: doublePrecision("total_units").notNull(),
+    completedUnits: doublePrecision("completed_units").notNull(),
+    day: integer("day").notNull(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.productId] }),
+  }),
+);
+
+export type ChallengeProgressRow = typeof challengeProgress.$inferSelect;
+export type NewChallengeProgressRow = typeof challengeProgress.$inferInsert;
+
+/**
+ * Session 68: one row per visitor — pacing config plus reminder interval.
+ * A null `dayStart` means the visitor has no pacing config yet.
+ */
+export const challengeSettings = pgTable("challenge_settings", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  dailyTarget: doublePrecision("daily_target"),
+  dayStart: timestamp("day_start"),
+  reminderIntervalDays: integer("reminder_interval_days").notNull().default(1),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type ChallengeSettingsRow = typeof challengeSettings.$inferSelect;
+export type NewChallengeSettingsRow = typeof challengeSettings.$inferInsert;
+
+/**
+ * Session 68: a visitor's own challenge reviews — one per visitor per product
+ * (unique on userId + productId). Only ever read back by their author.
+ */
+export const challengeReviews = pgTable(
+  "challenge_reviews",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    productId: text("product_id").notNull(),
+    productTitle: text("product_title").notNull(),
+    rating: integer("rating").notNull(),
+    keyTakeaway: text("key_takeaway").notNull(),
+    reviewText: text("review_text").notNull(),
+    actionPlan: text("action_plan").notNull(),
+    pacingEval: text("pacing_eval").notNull(),
+    isPrivate: boolean("is_private").notNull(),
+    hasSpoiler: boolean("has_spoiler").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    userProductUnique: unique("challenge_reviews_user_product_unique").on(
+      table.userId,
+      table.productId,
+    ),
+  }),
+);
+
+export type ChallengeReviewRow = typeof challengeReviews.$inferSelect;
+export type NewChallengeReviewRow = typeof challengeReviews.$inferInsert;

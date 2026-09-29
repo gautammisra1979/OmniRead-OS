@@ -18,50 +18,77 @@ interface ProgressTrackerProps {
 
 export function ProgressTracker({ product }: ProgressTrackerProps) {
   const { t } = useLanguage();
-  const [entry, setEntry] = useState<ProgressEntry | undefined>(getProgressForProduct(product.id));
-  const [pacingConfig, setPacingConfigState] = useState<PacingConfig | null>(getPacingConfig());
-  const [dailyTarget, setDailyTarget] = useState(pacingConfig?.dailyTarget ?? 50);
+  const [entry, setEntry] = useState<ProgressEntry | undefined>(undefined);
+  const [pacingConfig, setPacingConfigState] = useState<PacingConfig | null>(null);
+  const [dailyTarget, setDailyTarget] = useState(50);
   const [manualUnits, setManualUnits] = useState("");
   const [activeDay, setActiveDay] = useState<number | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const currentDay = getCurrentChallengeDay();
+  const currentDay = getCurrentChallengeDay(pacingConfig);
   const isEbook = product.type === "ebook";
   const isAudio = product.type === "audiobook";
   const isVideo = product.type === "video";
   const hasMedia = !!product.mediaFile?.dataUrl;
 
-  // Initialize or get entry
+  // Load the saved pacing config and progress entry (or a stub entry)
   useEffect(() => {
-    const existing = getProgressForProduct(product.id);
-    if (existing) {
-      setEntry(existing);
-    } else {
-      // Create a stub entry
-      const totalUnits = isEbook ? 200 : 3600; // default 200 pages or 1 hour
-      setEntry({
-        productId: product.id,
-        productTitle: product.title,
-        format: product.type,
-        totalUnits,
-        completedUnits: 0,
-        lastUpdated: new Date().toISOString(),
-        day: currentDay,
-      });
-    }
-  }, [product.id, product.title, product.type, isEbook, currentDay]);
-
-  // Save pacing config when target changes
-  useEffect(() => {
-    const existing = getPacingConfig();
-    const config: PacingConfig = {
-      dailyTarget,
-      dayStart: existing?.dayStart ?? new Date().toISOString(),
+    let cancelled = false;
+    (async () => {
+      try {
+        let config = await getPacingConfig();
+        if (cancelled) return;
+        if (config) {
+          setDailyTarget(config.dailyTarget);
+        } else {
+          // First visit: start the challenge clock with the default target
+          config = { dailyTarget: 50, dayStart: new Date().toISOString() };
+          await savePacingConfig(config);
+          if (cancelled) return;
+        }
+        setPacingConfigState(config);
+        const existing = await getProgressForProduct(product.id);
+        if (cancelled) return;
+        if (existing) {
+          setEntry(existing);
+        } else {
+          // Create a stub entry
+          const totalUnits = isEbook ? 200 : 3600; // default 200 pages or 1 hour
+          setEntry({
+            productId: product.id,
+            productTitle: product.title,
+            format: product.type,
+            totalUnits,
+            completedUnits: 0,
+            lastUpdated: new Date().toISOString(),
+            day: getCurrentChallengeDay(config),
+          });
+        }
+      } catch (err) {
+        console.error("Failed to load challenge progress:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
-    savePacingConfig(config);
-    setPacingConfigState(config);
-  }, [dailyTarget]);
+  }, [product.id, product.title, product.type, isEbook]);
+
+  // Save pacing config when the visitor changes the target
+  const handleTargetChange = useCallback(
+    (value: number) => {
+      setDailyTarget(value);
+      const config: PacingConfig = {
+        dailyTarget: value,
+        dayStart: pacingConfig?.dayStart ?? new Date().toISOString(),
+      };
+      setPacingConfigState(config);
+      savePacingConfig(config).catch((err) => {
+        console.error("Failed to save pacing config:", err);
+      });
+    },
+    [pacingConfig],
+  );
 
   const updateProgress = useCallback(
     (completed: number, total: number) => {
@@ -73,7 +100,9 @@ export function ProgressTracker({ product }: ProgressTrackerProps) {
         lastUpdated: new Date().toISOString(),
         day: currentDay,
       };
-      saveProgressEntry(updated);
+      saveProgressEntry(updated).catch((err) => {
+        console.error("Failed to save progress:", err);
+      });
       setEntry(updated);
     },
     [entry, currentDay],
@@ -188,7 +217,7 @@ export function ProgressTracker({ product }: ProgressTrackerProps) {
           min={1}
           max={100}
           value={dailyTarget}
-          onChange={(e) => setDailyTarget(parseInt(e.target.value, 10))}
+          onChange={(e) => handleTargetChange(parseInt(e.target.value, 10))}
           className="mt-2 w-full"
           style={{ accentColor: "var(--color-primary,#6366f1)" }}
           aria-label={t("challenge.pacingDesc")}
