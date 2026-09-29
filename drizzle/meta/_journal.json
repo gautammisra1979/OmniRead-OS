@@ -169,6 +169,13 @@
       "when": 1790641792426,
       "tag": "0023_harsh_supreme_intelligence",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790646902025,
+      "tag": "0024_clammy_war_machine",
+      "breakpoints": true
     }
   ]
 }

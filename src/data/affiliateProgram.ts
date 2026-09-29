@@ -9,7 +9,6 @@ import {
   affiliateClickEvents,
   affiliateLedger,
   affiliatePayouts,
-  loyaltyConfig,
   loyaltyLedger,
   type AffiliateProfileRow,
   type AffiliateLedgerRow,
@@ -19,6 +18,7 @@ import { getUserId } from "~/lib/getUserId";
 import { requireAdmin } from "~/lib/requireAdmin";
 import { auth } from "~/lib/auth";
 import { getAffiliateSettings, type AffiliateSettings } from "~/data/affiliateSettings";
+import { loadConfig } from "~/data/loyalty";
 
 /**
  * Tier A: the real affiliate backend. Replaces the pieces of the localStorage
@@ -122,8 +122,9 @@ function daysFromNow(days: number): Date {
  * eligible row is atomically flipped to `converted` (a conditional update
  * guards against a concurrent caller already resolving the same row) and a
  * matching loyaltyLedger bonus entry is inserted directly — loyalty.ts's own
- * redeemPoints() always credits the *calling* session's own userId via
- * getUserId(), not an arbitrary target user, so it can't be reused here.
+ * redeemPoints() always debits (inserts a `redeemed` row for) the *calling*
+ * session's own userId via getUserId(), not an arbitrary target user, so it
+ * can't be reused here.
  *
  * Shared by dbResolvePendingLedgerEntries, dbGetPayableSummary, and
  * dbSettleAffiliatePayout so the resolution logic lives in one place instead
@@ -149,11 +150,12 @@ async function resolveEligibleForAffiliate(
     );
   if (eligibleRows.length === 0) return;
 
-  const configRows = await database
-    .select()
-    .from(loyaltyConfig)
-    .where(and(eq(loyaltyConfig.userId, affiliate.userId), eq(loyaltyConfig.status, "published")));
-  const conversionRate = configRows[0]?.conversionRate ?? 100;
+  // loyalty_config is a single store-wide settings row (Session 67) — every
+  // affiliate's commission converts at the same published conversionRate,
+  // not a per-affiliate one. loadConfig("published") already falls back to
+  // DEFAULT_CONFIG (conversionRate: 100) when no row is published yet.
+  const config = await loadConfig("published");
+  const conversionRate = config.conversionRate;
 
   for (const row of eligibleRows) {
     const [updated] = await database

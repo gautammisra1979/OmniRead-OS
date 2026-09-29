@@ -13,8 +13,11 @@ import { requireAdmin } from "~/lib/requireAdmin";
 
 /**
  * Phase 3 (Step 26): DB-backed loyalty config + ledger, replacing the
- * localStorage version. `loyalty_config` holds both draft and published rows
- * per owner, differentiated by the `status` column. Rows are keyed by the
+ * localStorage version. `loyalty_config` is a single store-wide settings
+ * table (Session 67) keyed by a fixed `id: "global"` plus `status` — one
+ * draft row and one published row for the whole store, same pattern as
+ * credit_settings/promo_settings/license_settings/affiliate_settings/
+ * email_settings/storefront_layout. `loyalty_ledger` stays keyed by the
  * Better Auth user_id (src/lib/getUserId.ts) — every visitor, guest or
  * logged-in, has one via the `anonymous` plugin. The one Flight Recorder
  * call that used to fire on every ledger mutation has been removed;
@@ -93,12 +96,11 @@ function rowToLedgerEntry(row: LoyaltyLedgerRow): LoyaltyLedgerEntry {
 }
 
 async function upsertConfig(
-  userId: string,
   status: "draft" | "published",
   config: LoyaltyConfig,
 ): Promise<void> {
   const values = {
-    userId,
+    id: "global",
     status,
     tiers: config.tiers,
     pointsPerPurchase: config.pointsPerPurchase,
@@ -110,7 +112,7 @@ async function upsertConfig(
     .insert(loyaltyConfig)
     .values(values)
     .onConflictDoUpdate({
-      target: [loyaltyConfig.userId, loyaltyConfig.status],
+      target: [loyaltyConfig.id, loyaltyConfig.status],
       set: values,
     });
 }
@@ -118,46 +120,43 @@ async function upsertConfig(
 /* ─── Internal server functions: Draft / Published Config ─── */
 
 /** Shared by dbGetConfig and dbRedeemPoints so the two can't drift on which
- *  config row a given (userId, status) pair resolves to. */
-async function loadConfig(
-  userId: string,
-  status: "draft" | "published",
-): Promise<LoyaltyConfig> {
+ *  config row a given status resolves to. Exported for affiliateProgram.ts's
+ *  loyalty-credit conversion, which needs the same global published row. */
+export async function loadConfig(status: "draft" | "published"): Promise<LoyaltyConfig> {
   const rows = await db()
     .select()
     .from(loyaltyConfig)
-    .where(and(eq(loyaltyConfig.userId, userId), eq(loyaltyConfig.status, status)));
+    .where(and(eq(loyaltyConfig.id, "global"), eq(loyaltyConfig.status, status)));
   return rows[0] ? rowToConfig(rows[0]) : structuredClone(DEFAULT_CONFIG);
 }
 
 const dbGetConfig = createServerFn({ method: "GET" })
   .validator((status: "draft" | "published") => status)
   .handler(async ({ data: status }): Promise<LoyaltyConfig> => {
-    const userId = await getUserId();
-    return loadConfig(userId, status);
+    if (status === "draft") await requireAdmin();
+    return loadConfig(status);
   });
 
 const dbSaveDraftConfig = createServerFn({ method: "POST" })
   .validator((config: LoyaltyConfig) => config)
   .handler(async ({ data: config }): Promise<void> => {
     await requireAdmin();
-    await upsertConfig(await getUserId(), "draft", config);
+    await upsertConfig("draft", config);
   });
 
 const dbPublishConfig = createServerFn({ method: "POST" })
   .validator((config: LoyaltyConfig) => config)
   .handler(async ({ data: config }): Promise<void> => {
     await requireAdmin();
-    await upsertConfig(await getUserId(), "published", config);
+    await upsertConfig("published", config);
   });
 
 const dbHasPublishedConfig = createServerFn({ method: "GET" }).handler(
   async (): Promise<boolean> => {
-    const userId = await getUserId();
     const rows = await db()
       .select()
       .from(loyaltyConfig)
-      .where(and(eq(loyaltyConfig.userId, userId), eq(loyaltyConfig.status, "published")));
+      .where(and(eq(loyaltyConfig.id, "global"), eq(loyaltyConfig.status, "published")));
     return rows.length > 0;
   },
 );
@@ -207,7 +206,7 @@ const dbRedeemPoints = createServerFn({ method: "POST" })
     const trimmedDescription = data.description.trim();
     const description = (trimmedDescription || `Redeemed ${points} points`).slice(0, 200);
 
-    const config = await loadConfig(userId, "published");
+    const config = await loadConfig("published");
     if (points < config.minimumRedeem) return false;
 
     const client = sql();
@@ -306,9 +305,10 @@ export async function getLedger(): Promise<LoyaltyLedgerEntry[]> {
 
 /**
  * Server-to-server variant for src/data/refunds.ts's refund-approval path.
- * redeemPoints() below always credits the *calling* session's own userId via
- * getUserId(), never an arbitrary target user, so it can't be reused to
- * deduct points from the actual buyer — same constraint documented on the
+ * redeemPoints() below always debits (inserts a `redeemed` row for) the
+ * *calling* session's own userId via getUserId(), never an arbitrary target
+ * user, so it can't be reused to deduct points from the actual buyer — same
+ * constraint documented on the
  * affiliate side by affiliateProgram.ts's resolveEligibleForAffiliate.
  *
  * Deliberately not routed through redeemPoints(): a refund clawback isn't a

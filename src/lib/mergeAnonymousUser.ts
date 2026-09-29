@@ -5,7 +5,6 @@ import {
   cartItems,
   cartState,
   wallet,
-  loyaltyConfig,
   loyaltyLedger,
   downloads,
   refundClaims,
@@ -23,9 +22,9 @@ import {
  * reassign to `realUserId` is deleted automatically along with the
  * anonymous user. That cascade is what implements "discard the anonymous
  * row" for the conflict cases below: we simply don't touch those rows, and
- * they disappear on their own. `loyaltyConfig` and `mediaProgress` are both
- * composite-key tables (userId plus a second column), so their conflict
- * checks are done per-row rather than once per user.
+ * they disappear on their own. `mediaProgress` is a composite-key table
+ * (userId plus a second column), so its conflict check is done per-row
+ * rather than once per user.
  *
  * Manual verification (no automated test harness for this yet):
  * 1. Load the site with no session — the anonymous plugin signs you in
@@ -57,7 +56,7 @@ export async function mergeAnonymousUserData(
   try {
     // Reads that decide the branching below for the one-row-per-user
     // tables (cartState, wallet) and the composite-key table
-    // (loyaltyConfig). These run ahead of the atomic write batch — the
+    // (mediaProgress). These run ahead of the atomic write batch — the
     // neon-http driver has no interactive/read-then-write transaction
     // support (see the comment on `database.batch(...)` below), so this
     // read-then-decide step isn't itself covered by the same atomicity
@@ -68,8 +67,6 @@ export async function mergeAnonymousUserData(
       realCartStateRows,
       anonWalletRows,
       realWalletRows,
-      anonLoyaltyRows,
-      realLoyaltyRows,
       anonReferralRows,
       realReferralRows,
       anonAffiliateProfileRows,
@@ -81,8 +78,6 @@ export async function mergeAnonymousUserData(
         database.select().from(cartState).where(eq(cartState.userId, realUserId)),
         database.select().from(wallet).where(eq(wallet.userId, anonUserId)),
         database.select().from(wallet).where(eq(wallet.userId, realUserId)),
-        database.select().from(loyaltyConfig).where(eq(loyaltyConfig.userId, anonUserId)),
-        database.select().from(loyaltyConfig).where(eq(loyaltyConfig.userId, realUserId)),
         database.select().from(affiliateReferrals).where(eq(affiliateReferrals.userId, anonUserId)),
         database.select().from(affiliateReferrals).where(eq(affiliateReferrals.userId, realUserId)),
         database.select().from(affiliateProfiles).where(eq(affiliateProfiles.userId, anonUserId)),
@@ -128,22 +123,6 @@ export async function mergeAnonymousUserData(
       conditionalOps.push(
         database.update(wallet).set({ userId: realUserId }).where(eq(wallet.userId, anonUserId)),
       );
-    }
-
-    // loyaltyConfig: composite primary key (userId, status) — reassign per
-    // status; where the real user already has a config row for that same
-    // status, leave the anonymous row alone so it cascades away instead of
-    // attempting a field-level merge.
-    const realStatuses = new Set(realLoyaltyRows.map((row) => row.status));
-    for (const row of anonLoyaltyRows) {
-      if (!realStatuses.has(row.status)) {
-        conditionalOps.push(
-          database
-            .update(loyaltyConfig)
-            .set({ userId: realUserId })
-            .where(and(eq(loyaltyConfig.userId, anonUserId), eq(loyaltyConfig.status, row.status))),
-        );
-      }
     }
 
     // affiliateReferrals: userId is the primary key, one row per visitor.

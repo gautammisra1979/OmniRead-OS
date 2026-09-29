@@ -159,9 +159,7 @@ export type NewCreditSettingsRow = typeof creditSettings.$inferInsert;
 export const loyaltyConfig = pgTable(
   "loyalty_config",
   {
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    id: text("id").notNull().default("global"),
     status: text("status").notNull(), // 'draft' | 'published'
     tiers: jsonb("tiers")
       .notNull()
@@ -177,7 +175,7 @@ export const loyaltyConfig = pgTable(
     minimumRedeem: integer("minimum_redeem").notNull().default(50),
   },
   (table) => ({
-    pk: primaryKey({ columns: [table.userId, table.status] }),
+    pk: primaryKey({ columns: [table.id, table.status] }),
   }),
 );
 
