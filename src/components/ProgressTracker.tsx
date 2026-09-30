@@ -12,6 +12,9 @@ import {
   type PacingConfig,
 } from "~/data/progress";
 
+const PROGRESS_SAVE_DELAY_MS = 5000;
+const PACING_SAVE_DELAY_MS = 500;
+
 interface ProgressTrackerProps {
   product: CatalogItem;
 }
@@ -32,11 +35,96 @@ export function ProgressTracker({ product }: ProgressTrackerProps) {
   const isVideo = product.type === "video";
   const hasMedia = !!product.mediaFile?.dataUrl;
 
+  // Latest values and save bookkeeping live in refs so the save scheduling and the
+  // DOM listeners never depend on (and never re-subscribe for) React state.
+  const productIdRef = useRef(product.id);
+  const currentDayRef = useRef(currentDay);
+  currentDayRef.current = currentDay;
+  const latestEntryRef = useRef<ProgressEntry | undefined>(undefined);
+  const pendingEntryRef = useRef<ProgressEntry | null>(null); // non-null = dirty
+  const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const progressInFlightRef = useRef<Promise<void> | null>(null);
+  const latestPacingRef = useRef<PacingConfig | null>(null);
+  const pendingPacingRef = useRef<PacingConfig | null>(null); // non-null = dirty
+  const pacingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pacingInFlightRef = useRef<Promise<void> | null>(null);
+  const progressUrgentRef = useRef(false);
+  const pacingUrgentRef = useRef(false);
+
+  // Save the pending progress entry. At most one save in flight; the last value wins.
+  // `urgent` (pause, ended, Add, hide, pagehide, product change, unmount) means "save
+  // now, and if newer progress lands during the save, save that immediately too".
+  // A non-urgent (timer) call that finds newer progress after a save re-arms the timer.
+  const runProgress = useCallback((urgent: boolean) => {
+    if (progressTimerRef.current) {
+      clearTimeout(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+    if (!pendingEntryRef.current) return;
+    if (progressInFlightRef.current) {
+      if (urgent) progressUrgentRef.current = true; // honoured when the in-flight save finishes
+      return;
+    }
+    const snapshot = pendingEntryRef.current;
+    pendingEntryRef.current = null;
+    progressUrgentRef.current = false;
+    const done = () => {
+      progressInFlightRef.current = null;
+      if (!pendingEntryRef.current) return;
+      if (progressUrgentRef.current) {
+        runProgress(false);
+      } else if (!progressTimerRef.current) {
+        progressTimerRef.current = setTimeout(() => runProgress(false), PROGRESS_SAVE_DELAY_MS);
+      }
+    };
+    progressInFlightRef.current = saveProgressEntry(snapshot)
+      .catch((err) => {
+        console.error("Failed to save progress:", err);
+      })
+      .then(done);
+  }, []);
+  const flushProgress = useCallback(() => runProgress(true), [runProgress]);
+
+  // Same rules for the pacing config (500 ms timer).
+  const runPacing = useCallback((urgent: boolean) => {
+    if (pacingTimerRef.current) {
+      clearTimeout(pacingTimerRef.current);
+      pacingTimerRef.current = null;
+    }
+    if (!pendingPacingRef.current) return;
+    if (pacingInFlightRef.current) {
+      if (urgent) pacingUrgentRef.current = true;
+      return;
+    }
+    const snapshot = pendingPacingRef.current;
+    pendingPacingRef.current = null;
+    pacingUrgentRef.current = false;
+    const done = () => {
+      pacingInFlightRef.current = null;
+      if (!pendingPacingRef.current) return;
+      if (pacingUrgentRef.current) {
+        runPacing(false);
+      } else if (!pacingTimerRef.current) {
+        pacingTimerRef.current = setTimeout(() => runPacing(false), PACING_SAVE_DELAY_MS);
+      }
+    };
+    pacingInFlightRef.current = savePacingConfig(snapshot)
+      .catch((err) => {
+        console.error("Failed to save pacing config:", err);
+      })
+      .then(done);
+  }, []);
+  const flushPacing = useCallback(() => runPacing(true), [runPacing]);
+
   // Load the saved pacing config and progress entry (or a stub entry)
   useEffect(() => {
     let cancelled = false;
+    productIdRef.current = product.id;
     (async () => {
       try {
+        // A pacing save flushed by the previous product's cleanup must land before we read
+        if (pacingInFlightRef.current) await pacingInFlightRef.current;
+        if (cancelled) return;
         let config = await getPacingConfig();
         if (cancelled) return;
         if (config) {
@@ -47,15 +135,17 @@ export function ProgressTracker({ product }: ProgressTrackerProps) {
           await savePacingConfig(config);
           if (cancelled) return;
         }
+        latestPacingRef.current = config;
         setPacingConfigState(config);
         const existing = await getProgressForProduct(product.id);
         if (cancelled) return;
         if (existing) {
+          latestEntryRef.current = existing;
           setEntry(existing);
         } else {
-          // Create a stub entry
+          // Create a stub entry (state only; it is saved once real progress happens)
           const totalUnits = isEbook ? 200 : 3600; // default 200 pages or 1 hour
-          setEntry({
+          const stub: ProgressEntry = {
             productId: product.id,
             productTitle: product.title,
             format: product.type,
@@ -63,7 +153,9 @@ export function ProgressTracker({ product }: ProgressTrackerProps) {
             completedUnits: 0,
             lastUpdated: new Date().toISOString(),
             day: getCurrentChallengeDay(config),
-          });
+          };
+          latestEntryRef.current = stub;
+          setEntry(stub);
         }
       } catch (err) {
         console.error("Failed to load challenge progress:", err);
@@ -71,41 +163,70 @@ export function ProgressTracker({ product }: ProgressTrackerProps) {
     })();
     return () => {
       cancelled = true;
+      // Product change or unmount: save what the OLD product had pending. The pending
+      // entry carries its own productId, so this is correct after the prop has changed.
+      flushProgress();
+      flushPacing();
     };
-  }, [product.id, product.title, product.type, isEbook]);
+  }, [product.id, product.title, product.type, isEbook, flushProgress, flushPacing]);
 
-  // Save pacing config when the visitor changes the target
+  // Best-effort flush when the tab is hidden or closed
+  useEffect(() => {
+    const flushAll = () => {
+      flushProgress();
+      flushPacing();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flushAll();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", flushAll);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", flushAll);
+    };
+  }, [flushProgress, flushPacing]);
+
+  // Pacing slider: UI moves immediately, the save is trailing-debounced (500 ms)
   const handleTargetChange = useCallback(
     (value: number) => {
       setDailyTarget(value);
       const config: PacingConfig = {
         dailyTarget: value,
-        dayStart: pacingConfig?.dayStart ?? new Date().toISOString(),
+        dayStart: latestPacingRef.current?.dayStart ?? new Date().toISOString(),
       };
+      latestPacingRef.current = config;
       setPacingConfigState(config);
-      savePacingConfig(config).catch((err) => {
-        console.error("Failed to save pacing config:", err);
-      });
+      pendingPacingRef.current = config;
+      if (pacingTimerRef.current) clearTimeout(pacingTimerRef.current);
+      pacingTimerRef.current = setTimeout(() => runPacing(false), PACING_SAVE_DELAY_MS);
     },
-    [pacingConfig],
+    [runPacing],
   );
 
   const updateProgress = useCallback(
     (completed: number, total: number) => {
-      if (!entry) return;
+      const base = latestEntryRef.current;
+      // No entry yet, or the entry still belongs to the previous product
+      if (!base || base.productId !== productIdRef.current) return;
+      const completedUnits = Math.min(completed, total);
+      const totalUnits = Math.max(total, base.totalUnits);
+      if (completedUnits === base.completedUnits && totalUnits === base.totalUnits) return;
       const updated: ProgressEntry = {
-        ...entry,
-        completedUnits: Math.min(completed, total),
-        totalUnits: Math.max(total, entry.totalUnits),
+        ...base,
+        completedUnits,
+        totalUnits,
         lastUpdated: new Date().toISOString(),
-        day: currentDay,
+        day: currentDayRef.current,
       };
-      saveProgressEntry(updated).catch((err) => {
-        console.error("Failed to save progress:", err);
-      });
+      latestEntryRef.current = updated;
+      pendingEntryRef.current = updated;
       setEntry(updated);
+      if (!progressTimerRef.current) {
+        progressTimerRef.current = setTimeout(() => runProgress(false), PROGRESS_SAVE_DELAY_MS);
+      }
     },
-    [entry, currentDay],
+    [runProgress],
   );
 
   // Audio/Video timeupdate
@@ -120,8 +241,14 @@ export function ProgressTracker({ product }: ProgressTrackerProps) {
       }
     };
     el.addEventListener("timeupdate", handleTimeUpdate);
-    return () => el.removeEventListener("timeupdate", handleTimeUpdate);
-  }, [hasMedia, isAudio, isVideo, updateProgress]);
+    el.addEventListener("pause", flushProgress);
+    el.addEventListener("ended", flushProgress);
+    return () => {
+      el.removeEventListener("timeupdate", handleTimeUpdate);
+      el.removeEventListener("pause", flushProgress);
+      el.removeEventListener("ended", flushProgress);
+    };
+  }, [hasMedia, isAudio, isVideo, updateProgress, flushProgress]);
 
   // PDF scroll tracking
   useEffect(() => {
@@ -130,22 +257,24 @@ export function ProgressTracker({ product }: ProgressTrackerProps) {
     const handleScroll = () => {
       const ratio = el.scrollTop / (el.scrollHeight - el.clientHeight);
       if (ratio > 0 && isFinite(ratio)) {
-        const total = entry?.totalUnits ?? 200;
+        const total = latestEntryRef.current?.totalUnits ?? 200;
         updateProgress(Math.floor(ratio * total), total);
       }
     };
     el.addEventListener("scroll", handleScroll);
     return () => el.removeEventListener("scroll", handleScroll);
-  }, [isEbook, entry, updateProgress]);
+  }, [isEbook, updateProgress]);
 
   const handleManualUpdate = useCallback(() => {
     const units = parseInt(manualUnits, 10);
     if (isNaN(units) || units < 0) return;
-    const total = entry?.totalUnits ?? 200;
-    const current = entry?.completedUnits ?? 0;
+    const base = latestEntryRef.current;
+    const total = base?.totalUnits ?? 200;
+    const current = base?.completedUnits ?? 0;
     updateProgress(current + units, total);
+    flushProgress();
     setManualUnits("");
-  }, [manualUnits, entry, updateProgress]);
+  }, [manualUnits, updateProgress, flushProgress]);
 
   const deviation = entry && pacingConfig ? calculateDeviation(entry, pacingConfig) : "on-track";
 
