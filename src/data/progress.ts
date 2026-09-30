@@ -301,13 +301,6 @@ export async function getProgressForProduct(productId: string): Promise<Progress
 
 export async function saveProgressEntry(entry: ProgressEntry): Promise<void> {
   await dbSaveProgressEntry({ data: entry });
-  // Flight Recorder
-  if (typeof window !== "undefined") {
-    const entries = await dbGetProgressEntries();
-    import("./flightRecorder").then(({ appendTransaction }) =>
-      appendTransaction("CHALLENGE_PROGRESS_SAVE", entries),
-    );
-  }
 }
 
 /* ─── Public API: Pacing ─── */

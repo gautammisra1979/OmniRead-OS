@@ -39,13 +39,9 @@ import { requireAdmin } from "~/lib/requireAdmin";
  *    sites that used to call createCatalogItem() then saveCatalogItem()
  *    need to collapse to a single createCatalogItem() call.
  *
- * NOT carried over: the flightRecorder appendTransaction() calls that used
- * to fire on every catalog mutation. Those are gated on
- * `typeof window !== "undefined"`, which is false inside a server function
- * handler — so they'd silently no-op here, not actually log anything. That's
- * a real behavior change (catalog mutations stop appearing in the Flight
- * Recorder log) that deserves its own decision, not a silent drop. Flagging
- * rather than deciding.
+ * The Flight Recorder (the old localStorage transaction log) was removed in
+ * Session 69; it was never read by anything. A real server-side audit trail,
+ * if wanted, is a separate design item.
  */
 
 function db() {
