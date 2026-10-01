@@ -20,7 +20,7 @@ export function Footer() {
   const currentYear = new Date().getFullYear();
   const { t } = useLanguage();
   const { branding } = useBranding();
-  const hasLogo = branding.logoDataUrl && branding.logoDataUrl.trim().length > 0;
+  const hasLogo = branding.logoUrl && branding.logoUrl.trim().length > 0;
 
   const activeSocials = (["twitter", "instagram", "tiktok"] as const)
     .filter((platform) => branding.socialLinks[platform]?.trim().length > 0)
@@ -49,7 +49,7 @@ export function Footer() {
             >
               {hasLogo ? (
                 <img
-                  src={branding.logoDataUrl ?? undefined}
+                  src={branding.logoUrl ?? undefined}
                   alt={branding.storeName}
                   className="h-7 w-auto rounded object-contain"
                 />

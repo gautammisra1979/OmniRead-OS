@@ -339,6 +339,46 @@ export type StorefrontLayoutRow = typeof storefrontLayout.$inferSelect;
 export type NewStorefrontLayoutRow = typeof storefrontLayout.$inferInsert;
 
 /**
+ * Single global, admin-managed store branding row. Same shape as
+ * promoSettings/licenseSettings — no userId, one row keyed by the fixed
+ * "global" id. Replaces the old localStorage-only branding config. The logo
+ * itself lives in Vercel Blob (public covers store); only its URL is stored.
+ */
+export const brandingSettings = pgTable("branding_settings", {
+  id: text("id").primaryKey(),
+  storeName: text("store_name").notNull(),
+  supportEmail: text("support_email").notNull().default(""),
+  socialTwitter: text("social_twitter").notNull().default(""),
+  socialInstagram: text("social_instagram").notNull().default(""),
+  socialTiktok: text("social_tiktok").notNull().default(""),
+  logoUrl: text("logo_url"),
+});
+
+export type BrandingSettingsRow = typeof brandingSettings.$inferSelect;
+export type NewBrandingSettingsRow = typeof brandingSettings.$inferInsert;
+
+/**
+ * Single global, admin-managed store colour theme row. Same shape as
+ * promoSettings/licenseSettings — no userId, one row keyed by the fixed
+ * "global" id. Replaces the old localStorage-only active theme.
+ */
+export const themeSettings = pgTable("theme_settings", {
+  id: text("id").primaryKey(),
+  themeId: text("theme_id").notNull(),
+  themeName: text("theme_name").notNull(),
+  colorBg: text("color_bg").notNull(),
+  colorSurface: text("color_surface").notNull(),
+  colorNav: text("color_nav").notNull(),
+  colorPrimary: text("color_primary").notNull(),
+  colorText: text("color_text").notNull(),
+  colorTextMuted: text("color_text_muted").notNull(),
+  colorBorder: text("color_border").notNull(),
+});
+
+export type ThemeSettingsRow = typeof themeSettings.$inferSelect;
+export type NewThemeSettingsRow = typeof themeSettings.$inferInsert;
+
+/**
  * Single global, admin-managed style + announcement-bar settings row. Same
  * shape as promoSettings/licenseSettings — no userId, one row keyed by the
  * fixed "global" id. Replaces the old localStorage-only

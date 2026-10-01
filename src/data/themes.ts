@@ -1,3 +1,10 @@
+import { createServerFn } from "@tanstack/react-start";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/neon-http";
+import { sql } from "~/db";
+import { themeSettings, type ThemeSettingsRow } from "~/db/schema";
+import { requireAdmin } from "~/lib/requireAdmin";
+
 export interface Theme {
   id: string;
   name: string;
@@ -81,3 +88,87 @@ export const presetThemes: Theme[] = [
 ];
 
 export const defaultTheme = presetThemes[0]; // Midnight Charcoal
+
+const THEME_SETTINGS_ID = "global";
+const HEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+function db() {
+  return drizzle(sql());
+}
+
+function rowToTheme(row: ThemeSettingsRow): Theme {
+  return {
+    id: row.themeId,
+    name: row.themeName,
+    colors: {
+      bg: row.colorBg,
+      surface: row.colorSurface,
+      nav: row.colorNav,
+      primary: row.colorPrimary,
+      text: row.colorText,
+      textMuted: row.colorTextMuted,
+      border: row.colorBorder,
+    },
+  };
+}
+
+function themeToValues(theme: Theme) {
+  return {
+    themeId: theme.id,
+    themeName: theme.name,
+    colorBg: theme.colors.bg,
+    colorSurface: theme.colors.surface,
+    colorNav: theme.colors.nav,
+    colorPrimary: theme.colors.primary,
+    colorText: theme.colors.text,
+    colorTextMuted: theme.colors.textMuted,
+    colorBorder: theme.colors.border,
+  };
+}
+
+function isValidTheme(t: Theme): boolean {
+  if (!t || typeof t !== "object" || !t.colors) return false;
+  if (typeof t.id !== "string" || t.id.length < 1 || t.id.length > 60) return false;
+  if (typeof t.name !== "string" || t.name.length < 1 || t.name.length > 60) return false;
+  const keys = ["bg", "surface", "nav", "primary", "text", "textMuted", "border"] as const;
+  return keys.every((k) => typeof t.colors[k] === "string" && HEX.test(t.colors[k]));
+}
+
+async function readOrCreate(): Promise<Theme> {
+  const database = db();
+  const rows = await database
+    .select()
+    .from(themeSettings)
+    .where(eq(themeSettings.id, THEME_SETTINGS_ID));
+  if (rows[0]) return rowToTheme(rows[0]);
+
+  await database
+    .insert(themeSettings)
+    .values({ id: THEME_SETTINGS_ID, ...themeToValues(defaultTheme) })
+    .onConflictDoNothing();
+  const again = await database
+    .select()
+    .from(themeSettings)
+    .where(eq(themeSettings.id, THEME_SETTINGS_ID));
+  return again[0] ? rowToTheme(again[0]) : defaultTheme;
+}
+
+/* ─── Server functions ─── */
+
+export const getStoreTheme = createServerFn({ method: "GET" }).handler(
+  async (): Promise<Theme> => readOrCreate(),
+);
+
+export const saveStoreTheme = createServerFn({ method: "POST" })
+  .validator((theme: Theme) => theme)
+  .handler(async ({ data: theme }): Promise<Theme> => {
+    await requireAdmin();
+    if (!isValidTheme(theme)) return readOrCreate();
+
+    const values = themeToValues(theme);
+    await db()
+      .insert(themeSettings)
+      .values({ id: THEME_SETTINGS_ID, ...values })
+      .onConflictDoUpdate({ target: themeSettings.id, set: values });
+    return theme;
+  });

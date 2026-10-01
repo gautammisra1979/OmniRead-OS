@@ -15,8 +15,8 @@ export function NavBar({ onCartOpen, cartCount = 0 }: { onCartOpen?: () => void;
         
         {/* Left Branding Grid */}
         <div className="flex items-center gap-3">
-          {branding.logoDataUrl ? (
-            <img src={branding.logoDataUrl} alt="Logo" className="h-8 w-auto object-contain border border-black p-0.5" />
+          {branding.logoUrl ? (
+            <img src={branding.logoUrl} alt="Logo" className="h-8 w-auto object-contain border border-black p-0.5" />
           ) : (
             <div className="text-xl font-black uppercase tracking-wider border-2 border-black px-2 py-0.5 bg-black text-white shadow-[2px_2px_0px_rgba(0,0,0,1)]">
               {branding.storeName || "OMNIREAD"}

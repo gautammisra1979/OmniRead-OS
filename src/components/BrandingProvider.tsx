@@ -5,62 +5,87 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import { defaultBranding, type BrandingConfig } from "~/data/branding";
+import { saveBranding, type BrandingConfig } from "~/data/branding";
+import { uploadLogoImage, deleteLogoBlob } from "~/lib/blob";
 
 interface BrandingContextType {
   branding: BrandingConfig;
-  updateBranding: (field: string, value: string) => void;
-  updateSocialLink: (platform: "twitter" | "instagram" | "tiktok", url: string) => void;
-  updateLogo: (dataUrl: string | null) => void;
+  updateBranding: (field: string, value: string) => Promise<void>;
+  updateSocialLink: (platform: "twitter" | "instagram" | "tiktok", url: string) => Promise<void>;
+  updateLogo: (file: File | null) => Promise<void>;
 }
 
 const BrandingContext = createContext<BrandingContextType | null>(null);
 
-const STORAGE_KEY = "omnimedios_branding";
+export function BrandingProvider({
+  children,
+  initialBranding,
+}: {
+  children: ReactNode;
+  initialBranding: BrandingConfig;
+}) {
+  const [branding, setBranding] = useState<BrandingConfig>(initialBranding);
 
-export function BrandingProvider({ children }: { children: ReactNode }) {
-  const [branding, setBranding] = useState<BrandingConfig>(() => {
-    if (typeof window === "undefined") return defaultBranding;
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        return JSON.parse(saved) as BrandingConfig;
-      }
-    } catch {
-      // ignore parse errors
-    }
-    return defaultBranding;
-  });
-
-  const saveBranding = useCallback((next: BrandingConfig) => {
-    setBranding(next);
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    }
+  // Save, then adopt the config the server returned so a rejected value
+  // snaps back to what is stored.
+  const persist = useCallback(async (next: BrandingConfig) => {
+    const stored = await saveBranding({ data: next });
+    setBranding(stored);
+    return stored;
   }, []);
 
   const updateBranding = useCallback(
-    (field: string, value: string) => {
-      saveBranding({ ...branding, [field]: value });
+    async (field: string, value: string) => {
+      await persist({ ...branding, [field]: value });
     },
-    [branding, saveBranding],
+    [branding, persist],
   );
 
   const updateSocialLink = useCallback(
-    (platform: "twitter" | "instagram" | "tiktok", url: string) => {
-      saveBranding({
+    async (platform: "twitter" | "instagram" | "tiktok", url: string) => {
+      await persist({
         ...branding,
         socialLinks: { ...branding.socialLinks, [platform]: url },
       });
     },
-    [branding, saveBranding],
+    [branding, persist],
   );
 
   const updateLogo = useCallback(
-    (dataUrl: string | null) => {
-      saveBranding({ ...branding, logoDataUrl: dataUrl });
+    async (file: File | null) => {
+      const oldUrl = branding.logoUrl;
+      let newUrl: string | null = null;
+      if (file) {
+        const form = new FormData();
+        form.append("logo", file);
+        newUrl = await uploadLogoImage({ data: form });
+      }
+      const deleteBlob = async (url: string, which: string) => {
+        try {
+          await deleteLogoBlob({ data: url });
+        } catch (err) {
+          console.error(`Failed to delete ${which} logo blob`, err);
+        }
+      };
+
+      let stored: BrandingConfig;
+      try {
+        stored = await persist({ ...branding, logoUrl: newUrl });
+      } catch (err) {
+        // Save threw: keep the old logo, discard the fresh upload.
+        if (newUrl) await deleteBlob(newUrl, "new");
+        throw err;
+      }
+
+      if (stored.logoUrl === newUrl) {
+        // Save took effect: the old Blob is now unreferenced.
+        if (oldUrl && oldUrl !== newUrl) await deleteBlob(oldUrl, "old");
+      } else if (newUrl) {
+        // Server returned a different logo (rejected): discard the upload.
+        await deleteBlob(newUrl, "new");
+      }
     },
-    [branding, saveBranding],
+    [branding, persist],
   );
 
   return (

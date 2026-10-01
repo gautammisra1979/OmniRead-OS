@@ -53,3 +53,46 @@ export const deleteCatalogBlobs = createServerFn({ method: "POST" })
       await del(data.mediaUrl, { token: process.env.BLOB_MEDIA_READ_WRITE_TOKEN });
     }
   });
+
+/**
+ * Uploads the store logo to the public covers store. Only PNG/SVG, max 1 MB.
+ * The branding row stores just the returned public URL (see
+ * src/data/branding.ts); the Blob itself is never kept in Postgres.
+ */
+const LOGO_TYPES = ["image/png", "image/svg+xml"];
+const LOGO_MAX_BYTES = 1024 * 1024;
+
+export const uploadLogoImage = createServerFn({ method: "POST" })
+  .validator((data: FormData) => {
+    if (!(data instanceof FormData)) {
+      throw new Error("Expected FormData");
+    }
+    const file = data.get("logo");
+    if (!(file instanceof File)) {
+      throw new Error("Missing logo file");
+    }
+    return file;
+  })
+  .handler(async ({ data: file }): Promise<string> => {
+    await requireAdmin();
+    if (!LOGO_TYPES.includes(file.type)) {
+      throw new Error("Logo must be a PNG or SVG image");
+    }
+    if (file.size > LOGO_MAX_BYTES) {
+      throw new Error("Logo must be 1 MB or smaller");
+    }
+    const blob = await put(file.name, file, {
+      access: "public",
+      addRandomSuffix: true,
+      token: process.env.BLOB_COVERS_READ_WRITE_TOKEN,
+    });
+    return blob.url;
+  });
+
+/** Deletes a previously uploaded logo Blob from the public covers store. */
+export const deleteLogoBlob = createServerFn({ method: "POST" })
+  .validator((url: string) => url)
+  .handler(async ({ data: url }): Promise<void> => {
+    await requireAdmin();
+    await del(url, { token: process.env.BLOB_COVERS_READ_WRITE_TOKEN });
+  });

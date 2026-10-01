@@ -1,4 +1,4 @@
-import { useState, useRef, type ChangeEvent, type DragEvent } from "react";
+import { useState, useRef, useEffect, type ChangeEvent, type DragEvent } from "react";
 import { useBranding } from "~/components/BrandingProvider";
 import { useLanguage } from "~/components/LanguageProvider";
 
@@ -11,7 +11,17 @@ export function BrandingDashboard() {
   const [socialTwitter, setSocialTwitter] = useState(branding.socialLinks.twitter);
   const [socialInstagram, setSocialInstagram] = useState(branding.socialLinks.instagram);
   const [socialTiktok, setSocialTiktok] = useState(branding.socialLinks.tiktok);
-  const [logoPreview, setLogoPreview] = useState<string | null>(branding.logoDataUrl);
+  // Snap the fields back to the stored values after every save, so a value
+  // the server rejected does not linger in the input.
+  useEffect(() => {
+    setStoreName(branding.storeName);
+    setSupportEmail(branding.supportEmail);
+    setSocialTwitter(branding.socialLinks.twitter);
+    setSocialInstagram(branding.socialLinks.instagram);
+    setSocialTiktok(branding.socialLinks.tiktok);
+  }, [branding]);
+
+  const logoPreview = branding.logoUrl;
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -19,13 +29,7 @@ export function BrandingDashboard() {
     if (!file.type.match(/\.(png|svg)$/i) && !file.type.match(/^image\/(png|svg\+xml)$/)) {
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      setLogoPreview(dataUrl);
-      updateLogo(dataUrl);
-    };
-    reader.readAsDataURL(file);
+    updateLogo(file).catch((err) => console.error("Logo update failed", err));
   };
 
   const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
@@ -48,8 +52,7 @@ export function BrandingDashboard() {
   const handleDragLeave = () => setDragOver(false);
 
   const removeLogo = () => {
-    setLogoPreview(null);
-    updateLogo(null);
+    updateLogo(null).catch((err) => console.error("Logo removal failed", err));
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 

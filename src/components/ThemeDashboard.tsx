@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTheme } from "~/components/ThemeProvider";
 import { useLanguage } from "~/components/LanguageProvider";
 import { type Theme } from "~/data/themes";
@@ -16,15 +16,43 @@ const colorKeys: { key: keyof Theme["colors"]; labelKey: string }[] = [
 const HEX_REGEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
 export function ThemeDashboard() {
-  const { theme, applyTheme, presetThemesList } = useTheme();
+  const { theme, previewTheme, saveTheme, presetThemesList } = useTheme();
   const { t } = useLanguage();
   const [customColors, setCustomColors] = useState<Theme["colors"] | null>(null);
+  // The last theme actually stored; `theme` also moves during live preview.
+  const savedTheme = useRef<Theme>(theme);
 
   const activeColors = customColors ?? theme.colors;
 
+  const persist = async (next: Theme) => {
+    try {
+      await saveTheme(next);
+      savedTheme.current = next;
+    } catch (err) {
+      console.error("Theme save failed", err);
+      previewTheme(savedTheme.current);
+    }
+  };
+
   const handlePresetClick = (preset: Theme) => {
     setCustomColors(null);
-    applyTheme(preset);
+    void persist(preset);
+  };
+
+  const handleCustomColorBlur = () => {
+    if (!customColors) return;
+    const saved = savedTheme.current;
+    const allValid = Object.values(customColors).every((c) => HEX_REGEX.test(c));
+    const changed = (Object.keys(customColors) as (keyof Theme["colors"])[]).some(
+      (k) => customColors[k] !== saved.colors[k],
+    );
+    if (allValid && changed) {
+      void persist({ ...saved, colors: customColors }).then(() => setCustomColors(null));
+    } else if (!allValid) {
+      // Abandon an incomplete edit and fall back to the stored theme.
+      setCustomColors(null);
+      previewTheme(saved);
+    }
   };
 
   const handleCustomColorChange = (key: keyof Theme["colors"], value: string) => {
@@ -38,13 +66,13 @@ export function ThemeDashboard() {
         ...theme,
         colors: { ...(customColors ?? theme.colors), [key]: value },
       };
-      applyTheme(newTheme);
+      previewTheme(newTheme);
     }
   };
 
   const handleReset = () => {
     setCustomColors(null);
-    applyTheme(presetThemesList[0]);
+    void persist(presetThemesList[0]);
   };
 
   return (
@@ -124,6 +152,7 @@ export function ThemeDashboard() {
                 type="text"
                 value={activeColors[key]}
                 onChange={(e) => handleCustomColorChange(key, e.target.value)}
+                onBlur={handleCustomColorBlur}
                 className="w-full rounded-lg border border-[var(--color-border,#334155)] bg-[var(--color-surface,#1e293b)] px-3 py-1.5 text-sm font-mono text-[var(--color-text,#f8fafc)] transition-colors focus:border-[var(--color-primary,#6366f1)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary,#6366f1)]"
                 placeholder="#000000"
                 maxLength={7}

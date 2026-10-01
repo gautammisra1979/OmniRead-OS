@@ -1,9 +1,10 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
-import { presetThemes, defaultTheme, type Theme } from "~/data/themes";
+import { presetThemes, saveStoreTheme, type Theme } from "~/data/themes";
 
 interface ThemeContextType {
   theme: Theme;
-  applyTheme: (theme: Theme) => void;
+  previewTheme: (theme: Theme) => void;
+  saveTheme: (theme: Theme) => Promise<void>;
   presetThemesList: Theme[];
 }
 
@@ -21,27 +22,33 @@ function applyThemeVars(theme: Theme) {
   root.style.setProperty("--color-border", colors.border);
 }
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window === "undefined") return defaultTheme;
-    const saved = localStorage.getItem("omnimeda_theme");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as Theme;
-        return parsed;
-      } catch {
-        return defaultTheme;
-      }
-    }
-    return defaultTheme;
-  });
+// Server-rendered copy of the variables so the store theme is correct on
+// first paint, before any effect runs.
+function themeCss(theme: Theme): string {
+  const { colors } = theme;
+  return `:root{--color-bg:${colors.bg};--color-surface:${colors.surface};--color-nav:${colors.nav};--color-primary:${colors.primary};--color-text:${colors.text};--color-text-muted:${colors.textMuted};--color-border:${colors.border}}`;
+}
 
-  const applyTheme = useCallback((newTheme: Theme) => {
+export function ThemeProvider({
+  children,
+  initialTheme,
+}: {
+  children: ReactNode;
+  initialTheme: Theme;
+}) {
+  const [theme, setTheme] = useState<Theme>(initialTheme);
+
+  // Live preview: state + CSS variables, no write.
+  const previewTheme = useCallback((newTheme: Theme) => {
     setTheme(newTheme);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("omnimeda_theme", JSON.stringify(newTheme));
-    }
     applyThemeVars(newTheme);
+  }, []);
+
+  // Persist, then adopt the theme the server actually stored.
+  const saveTheme = useCallback(async (newTheme: Theme) => {
+    const stored = await saveStoreTheme({ data: newTheme });
+    setTheme(stored);
+    applyThemeVars(stored);
   }, []);
 
   // Apply theme on mount
@@ -51,8 +58,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   return (
     <ThemeContext.Provider
-      value={{ theme, applyTheme, presetThemesList: presetThemes }}
+      value={{ theme, previewTheme, saveTheme, presetThemesList: presetThemes }}
     >
+      <style dangerouslySetInnerHTML={{ __html: themeCss(initialTheme) }} />
       {children}
     </ThemeContext.Provider>
   );
