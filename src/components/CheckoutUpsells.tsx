@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
-import { getUpsellOffers, saveUpsellOffers, generateUpsellOffers, getMembershipPlans, saveMembershipPlans, type MembershipPlan } from "~/data/membership";
+import { generateUpsellOffers, getMembershipPlans, saveMembershipPlans, type MembershipPlan, type UpsellOffer } from "~/data/membership";
 import { getCatalogItems, updateCatalogAccess } from "~/db/queries";
 import type { CatalogItem } from "~/data/catalog";
 
 export function CheckoutUpsells() {
   const { t } = useLanguage();
-  const [offers, setOffers] = useState(getUpsellOffers());
+  const [offers, setOffers] = useState<UpsellOffer[]>([]);
   const [acceptedIds, setAcceptedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -15,7 +15,6 @@ export function CheckoutUpsells() {
       if (cancelled) return;
       if (generated.length > 0) {
         setOffers(generated);
-        saveUpsellOffers(generated);
       }
     });
     return () => {
@@ -84,13 +83,23 @@ export function CheckoutUpsells() {
 
 export function MembershipConfigSection() {
   const { t } = useLanguage();
-  const [plans, setPlans] = useState<MembershipPlan[]>(getMembershipPlans());
+  const [plans, setPlans] = useState<MembershipPlan[]>([]);
   const [saved, setSaved] = useState(false);
 
-  const handleSave = useCallback(() => {
-    saveMembershipPlans(plans);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  useEffect(() => {
+    getMembershipPlans().then(setPlans).catch((err) => console.error("Failed to load membership plans", err));
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    try {
+      const stored = await saveMembershipPlans({ data: plans });
+      setPlans(stored);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      console.error("Failed to save membership plans", err);
+      getMembershipPlans().then(setPlans).catch(() => {});
+    }
   }, [plans]);
 
   const handlePlanChange = useCallback((idx: number, field: keyof MembershipPlan, value: string | number | boolean) => {

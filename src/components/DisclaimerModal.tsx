@@ -1,12 +1,16 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import { getDisclaimerConfig, saveDisclaimerConfig, type DisclaimerConfig } from "~/data/membership";
-import { getInfoModals, addInfoModal, removeInfoModal } from "~/data/membership";
+import { getInfoModals, addInfoModal, removeInfoModal, type InfoModalConfig } from "~/data/membership";
 
 export function DisclaimerModal() {
   useLanguage();
-  const [config] = useState<DisclaimerConfig>(getDisclaimerConfig());
+  const [config, setConfig] = useState<DisclaimerConfig | null>(null);
   const [accepted, setAccepted] = useState(false);
+
+  useEffect(() => {
+    getDisclaimerConfig().then(setConfig).catch((err) => console.error("Failed to load disclaimer config", err));
+  }, []);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -23,14 +27,14 @@ export function DisclaimerModal() {
   }, []);
 
   const handleDecline = useCallback(() => {
-    if (config.requireAcceptance) return;
+    if (!config || config.requireAcceptance) return;
     setAccepted(true);
     if (typeof window !== "undefined") {
       sessionStorage.setItem("omnimedos_disclaimer_declined", "true");
     }
-  }, [config.requireAcceptance]);
+  }, [config]);
 
-  if (!config.enabled || accepted) return null;
+  if (!config || !config.enabled || accepted) return null;
 
   return (
     <div
@@ -90,14 +94,27 @@ export function DisclaimerModal() {
 
 export function DisclaimerConfigSection() {
   const { t } = useLanguage();
-  const [config, setConfig] = useState<DisclaimerConfig>(getDisclaimerConfig());
+  const [config, setConfig] = useState<DisclaimerConfig | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const handleSave = useCallback(() => {
-    saveDisclaimerConfig(config);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  useEffect(() => {
+    getDisclaimerConfig().then(setConfig).catch((err) => console.error("Failed to load disclaimer config", err));
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    if (!config) return;
+    try {
+      const stored = await saveDisclaimerConfig({ data: config });
+      setConfig(stored);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      console.error("Failed to save disclaimer config", err);
+      getDisclaimerConfig().then(setConfig).catch(() => {});
+    }
   }, [config]);
+
+  if (!config) return null;
 
   return (
     <div className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
@@ -120,7 +137,7 @@ export function DisclaimerConfigSection() {
             type="button"
             role="switch"
             aria-checked={config.enabled}
-            onClick={() => setConfig((p) => ({ ...p, enabled: !p.enabled }))}
+            onClick={() => setConfig((p) => p && ({ ...p, enabled: !p.enabled }))}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${config.enabled ? "bg-emerald-500" : "bg-gray-600"}`}
           >
             <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${config.enabled ? "translate-x-6" : "translate-x-1"}`} />
@@ -135,7 +152,7 @@ export function DisclaimerConfigSection() {
             {t("disclaimer.title") ?? "Title"}
           </label>
           <input id="disc-title" type="text" value={config.title}
-            onChange={(e) => setConfig((p) => ({ ...p, title: e.target.value }))}
+            onChange={(e) => setConfig((p) => p && ({ ...p, title: e.target.value }))}
             className="w-full max-w-md rounded-lg border px-3 py-2 text-sm"
             style={{ backgroundColor: "var(--color-bg,#0f172a)", color: "var(--color-text,#f8fafc)", borderColor: "var(--color-border,#334155)" }} />
         </div>
@@ -145,7 +162,7 @@ export function DisclaimerConfigSection() {
             {t("disclaimer.content") ?? "Content"}
           </label>
           <textarea id="disc-content" rows={4} value={config.content}
-            onChange={(e) => setConfig((p) => ({ ...p, content: e.target.value }))}
+            onChange={(e) => setConfig((p) => p && ({ ...p, content: e.target.value }))}
             className="w-full max-w-lg rounded-lg border px-3 py-2 text-sm"
             style={{ backgroundColor: "var(--color-bg,#0f172a)", color: "var(--color-text,#f8fafc)", borderColor: "var(--color-border,#334155)" }} />
         </div>
@@ -155,7 +172,7 @@ export function DisclaimerConfigSection() {
             type="button"
             role="switch"
             aria-checked={config.requireAcceptance}
-            onClick={() => setConfig((p) => ({ ...p, requireAcceptance: !p.requireAcceptance }))}
+            onClick={() => setConfig((p) => p && ({ ...p, requireAcceptance: !p.requireAcceptance }))}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${config.requireAcceptance ? "bg-emerald-500" : "bg-gray-600"}`}
           >
             <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${config.requireAcceptance ? "translate-x-6" : "translate-x-1"}`} />
@@ -171,7 +188,7 @@ export function DisclaimerConfigSection() {
               {t("disclaimer.acceptLabel") ?? "Accept Button Label"}
             </label>
             <input id="disc-accept" type="text" value={config.acceptLabel}
-              onChange={(e) => setConfig((p) => ({ ...p, acceptLabel: e.target.value }))}
+              onChange={(e) => setConfig((p) => p && ({ ...p, acceptLabel: e.target.value }))}
               className="w-full rounded-lg border px-3 py-2 text-sm"
               style={{ backgroundColor: "var(--color-bg,#0f172a)", color: "var(--color-text,#f8fafc)", borderColor: "var(--color-border,#334155)" }} />
           </div>
@@ -180,7 +197,7 @@ export function DisclaimerConfigSection() {
               {t("disclaimer.declineLabel") ?? "Decline Button Label"}
             </label>
             <input id="disc-decline" type="text" value={config.declineLabel}
-              onChange={(e) => setConfig((p) => ({ ...p, declineLabel: e.target.value }))}
+              onChange={(e) => setConfig((p) => p && ({ ...p, declineLabel: e.target.value }))}
               className="w-full rounded-lg border px-3 py-2 text-sm"
               style={{ backgroundColor: "var(--color-bg,#0f172a)", color: "var(--color-text,#f8fafc)", borderColor: "var(--color-border,#334155)" }} />
           </div>
@@ -250,7 +267,7 @@ export function InfoModal({ title, content, icon, onClose }: {
 
 export function InfoModalConfigSection() {
   const { t } = useLanguage();
-  const [modals, setModals] = useState<ReturnType<typeof import("~/data/membership")["getInfoModals"]>>([]);
+  const [modals, setModals] = useState<InfoModalConfig[]>([]);
   const [saved, setSaved] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -259,14 +276,18 @@ export function InfoModalConfigSection() {
   const [newLinkLabel, setNewLinkLabel] = useState("");
 
   useEffect(() => {
-    setModals(getInfoModals());
+    getInfoModals().then(setModals).catch((err) => console.error("Failed to load info modals", err));
   }, []);
 
-  const handleAdd = useCallback(() => {
+  const handleAdd = useCallback(async () => {
     if (!newTitle.trim() || !newContent.trim()) return;
-    const id = `info-${Date.now()}`;
-    addInfoModal({ id, title: newTitle.trim(), content: newContent.trim(), icon: newIcon, linkLabel: newLinkLabel.trim() || "Learn More" });
-    setModals(getInfoModals());
+    try {
+      const list = await addInfoModal({ data: { title: newTitle.trim(), content: newContent.trim(), icon: newIcon, linkLabel: newLinkLabel.trim() || "Learn More" } });
+      setModals(list);
+    } catch (err) {
+      console.error("Failed to add info modal", err);
+      return;
+    }
     setShowForm(false);
     setNewTitle("");
     setNewContent("");
@@ -276,9 +297,12 @@ export function InfoModalConfigSection() {
     setTimeout(() => setSaved(false), 2000);
   }, [newTitle, newContent, newIcon, newLinkLabel]);
 
-  const handleRemove = useCallback((id: string) => {
-    removeInfoModal(id);
-    setModals(getInfoModals());
+  const handleRemove = useCallback(async (id: string) => {
+    try {
+      setModals(await removeInfoModal({ data: { id } }));
+    } catch (err) {
+      console.error("Failed to remove info modal", err);
+    }
   }, []);
 
   return (

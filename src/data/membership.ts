@@ -7,7 +7,20 @@
 
 /* ─── Membership Types ─── */
 
+import { createServerFn } from "@tanstack/react-start";
+import { asc, eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/neon-http";
+import { sql } from "~/db";
+import {
+  membershipPlans,
+  disclaimerSettings,
+  infoModals,
+  type MembershipPlanRow,
+  type DisclaimerSettingsRow,
+  type InfoModalRow,
+} from "~/db/schema";
 import { getCatalogItems } from "~/db/queries";
+import { requireAdmin } from "~/lib/requireAdmin";
 export type MembershipTier = "free" | "basic" | "premium" | "enterprise";
 
 export interface MembershipPlan {
@@ -32,7 +45,6 @@ export interface UserMembership {
 }
 
 const MEMBERSHIP_KEY = "omnimedos_membership";
-const PLANS_KEY = "omnimedos_membership_plans";
 
 const DEFAULT_PLANS: MembershipPlan[] = [
   {
@@ -93,21 +105,111 @@ const DEFAULT_MEMBERSHIP: UserMembership = {
   paymentMethod: "none",
 };
 
-/* ─── Getters & Setters ─── */
+/* ─── Shared helpers ─── */
 
-export function getMembershipPlans(): MembershipPlan[] {
-  if (typeof window === "undefined") return [...DEFAULT_PLANS];
-  try {
-    const raw = localStorage.getItem(PLANS_KEY);
-    if (raw) return JSON.parse(raw) as MembershipPlan[];
-  } catch { /* ignore */ }
-  return [...DEFAULT_PLANS];
+function db() {
+  return drizzle(sql());
 }
 
-export function saveMembershipPlans(plans: MembershipPlan[]): void {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(PLANS_KEY, JSON.stringify(plans));
-  }
+function isTrimmedLength(value: unknown, min: number, max: number): value is string {
+  if (typeof value !== "string") return false;
+  const n = value.trim().length;
+  return n >= min && n <= max;
+}
+
+/* ─── Membership Plans ─── */
+
+function planRowToPlan(row: MembershipPlanRow): MembershipPlan {
+  return {
+    id: row.id,
+    name: row.name,
+    tier: row.tier as MembershipTier,
+    price: Number(row.price),
+    features: row.features,
+    allowLibrarian: row.allowLibrarian,
+    allowChallenge: row.allowChallenge,
+    allowDownloads: row.allowDownloads,
+    allowAffiliate: row.allowAffiliate,
+    storageLimit: row.storageLimit,
+  };
+}
+
+async function readOrCreatePlans(): Promise<MembershipPlan[]> {
+  const database = db();
+  const rows = await database.select().from(membershipPlans).orderBy(asc(membershipPlans.sortOrder));
+  if (rows.length > 0) return rows.map(planRowToPlan);
+
+  await database
+    .insert(membershipPlans)
+    .values(
+      DEFAULT_PLANS.map((p, i) => ({
+        id: p.id,
+        name: p.name,
+        tier: p.tier,
+        price: p.price.toFixed(2),
+        features: p.features,
+        allowLibrarian: p.allowLibrarian,
+        allowChallenge: p.allowChallenge,
+        allowDownloads: p.allowDownloads,
+        allowAffiliate: p.allowAffiliate,
+        storageLimit: p.storageLimit,
+        sortOrder: i,
+      })),
+    )
+    .onConflictDoNothing();
+  // Re-read so a concurrent first insert wins consistently.
+  const again = await database.select().from(membershipPlans).orderBy(asc(membershipPlans.sortOrder));
+  return again.map(planRowToPlan);
+}
+
+function isValidPlanEdit(p: MembershipPlan): boolean {
+  if (!p || typeof p !== "object" || typeof p.id !== "string") return false;
+  if (typeof p.price !== "number" || !Number.isFinite(p.price) || p.price < 0 || p.price > 99999.99) return false;
+  if (!Number.isInteger(p.storageLimit) || p.storageLimit < 0 || p.storageLimit > 1000000) return false;
+  return (
+    typeof p.allowLibrarian === "boolean" &&
+    typeof p.allowChallenge === "boolean" &&
+    typeof p.allowDownloads === "boolean" &&
+    typeof p.allowAffiliate === "boolean"
+  );
+}
+
+export const getMembershipPlans = createServerFn({ method: "GET" }).handler(
+  async (): Promise<MembershipPlan[]> => readOrCreatePlans(),
+);
+
+export const saveMembershipPlans = createServerFn({ method: "POST" })
+  .validator((plans: MembershipPlan[]) => plans)
+  .handler(async ({ data: plans }): Promise<MembershipPlan[]> => {
+    await requireAdmin();
+    if (!Array.isArray(plans) || !plans.every(isValidPlanEdit)) return readOrCreatePlans();
+
+    // Ensure the rows exist, then update the editable fields of known ids only.
+    const stored = await readOrCreatePlans();
+    const known = new Set(stored.map((p) => p.id));
+    const database = db();
+    for (const p of plans) {
+      if (!known.has(p.id)) continue;
+      await database
+        .update(membershipPlans)
+        .set({
+          price: p.price.toFixed(2),
+          storageLimit: p.storageLimit,
+          allowLibrarian: p.allowLibrarian,
+          allowChallenge: p.allowChallenge,
+          allowDownloads: p.allowDownloads,
+          allowAffiliate: p.allowAffiliate,
+        })
+        .where(eq(membershipPlans.id, p.id));
+    }
+    return readOrCreatePlans();
+  });
+
+/* ─── Customer membership stub (dead code, tracked in the backlog) ─── */
+
+// The stub below is dead code tracked in the backlog; it reads the default plans only.
+function defaultPlansSync(): MembershipPlan[] {
+  return [...DEFAULT_PLANS];
 }
 
 export function getUserMembership(): UserMembership {
@@ -126,7 +228,7 @@ export function saveUserMembership(membership: UserMembership): void {
 }
 
 export function upgradeMembership(tier: MembershipTier): void {
-  const plan = getMembershipPlans().find((p) => p.tier === tier);
+  const plan = defaultPlansSync().find((p) => p.tier === tier);
   if (!plan) return;
   const membership: UserMembership = {
     tier,
@@ -142,7 +244,7 @@ export function upgradeMembership(tier: MembershipTier): void {
 
 export function hasAccess(feature: "librarian" | "challenge" | "downloads" | "affiliate"): boolean {
   const membership = getUserMembership();
-  const plans = getMembershipPlans();
+  const plans = defaultPlansSync();
   const plan = plans.find((p) => p.tier === membership.tier);
   if (!plan) return false;
   switch (feature) {
@@ -163,23 +265,6 @@ export interface UpsellOffer {
   discountPercent: number;
   image: string | null;
   format: string;
-}
-
-const UPSELL_KEY = "omnimedos_upsell_offers";
-
-export function getUpsellOffers(): UpsellOffer[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(UPSELL_KEY);
-    if (raw) return JSON.parse(raw) as UpsellOffer[];
-  } catch { /* ignore */ }
-  return [];
-}
-
-export function saveUpsellOffers(offers: UpsellOffer[]): void {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(UPSELL_KEY, JSON.stringify(offers));
-  }
 }
 
 export async function generateUpsellOffers(): Promise<UpsellOffer[]> {
@@ -205,8 +290,6 @@ export interface DisclaimerConfig {
   requireAcceptance: boolean;
 }
 
-const DISCLAIMER_KEY = "omnimedos_disclaimer";
-
 const DEFAULT_DISCLAIMER: DisclaimerConfig = {
   enabled: false,
   title: "Terms & Conditions",
@@ -216,20 +299,75 @@ const DEFAULT_DISCLAIMER: DisclaimerConfig = {
   requireAcceptance: true,
 };
 
-export function getDisclaimerConfig(): DisclaimerConfig {
-  if (typeof window === "undefined") return { ...DEFAULT_DISCLAIMER };
-  try {
-    const raw = localStorage.getItem(DISCLAIMER_KEY);
-    if (raw) return { ...DEFAULT_DISCLAIMER, ...JSON.parse(raw) };
-  } catch { /* ignore */ }
-  return { ...DEFAULT_DISCLAIMER };
+const DISCLAIMER_ID = "global";
+
+function disclaimerRowToConfig(row: DisclaimerSettingsRow): DisclaimerConfig {
+  return {
+    enabled: row.enabled,
+    title: row.title,
+    content: row.content,
+    acceptLabel: row.acceptLabel,
+    declineLabel: row.declineLabel,
+    requireAcceptance: row.requireAcceptance,
+  };
 }
 
-export function saveDisclaimerConfig(config: DisclaimerConfig): void {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(DISCLAIMER_KEY, JSON.stringify(config));
-  }
+function isValidDisclaimer(c: DisclaimerConfig): boolean {
+  if (!c || typeof c !== "object") return false;
+  return (
+    typeof c.enabled === "boolean" &&
+    typeof c.requireAcceptance === "boolean" &&
+    isTrimmedLength(c.title, 1, 120) &&
+    isTrimmedLength(c.content, 1, 5000) &&
+    isTrimmedLength(c.acceptLabel, 1, 40) &&
+    isTrimmedLength(c.declineLabel, 1, 40)
+  );
 }
+
+async function readOrCreateDisclaimer(): Promise<DisclaimerConfig> {
+  const database = db();
+  const rows = await database
+    .select()
+    .from(disclaimerSettings)
+    .where(eq(disclaimerSettings.id, DISCLAIMER_ID));
+  if (rows[0]) return disclaimerRowToConfig(rows[0]);
+
+  await database
+    .insert(disclaimerSettings)
+    .values({ id: DISCLAIMER_ID, ...DEFAULT_DISCLAIMER })
+    .onConflictDoNothing();
+  // Re-read so a concurrent first insert wins consistently.
+  const again = await database
+    .select()
+    .from(disclaimerSettings)
+    .where(eq(disclaimerSettings.id, DISCLAIMER_ID));
+  return again[0] ? disclaimerRowToConfig(again[0]) : { ...DEFAULT_DISCLAIMER };
+}
+
+export const getDisclaimerConfig = createServerFn({ method: "GET" }).handler(
+  async (): Promise<DisclaimerConfig> => readOrCreateDisclaimer(),
+);
+
+export const saveDisclaimerConfig = createServerFn({ method: "POST" })
+  .validator((config: DisclaimerConfig) => config)
+  .handler(async ({ data: config }): Promise<DisclaimerConfig> => {
+    await requireAdmin();
+    if (!isValidDisclaimer(config)) return readOrCreateDisclaimer();
+
+    const values = {
+      enabled: config.enabled,
+      title: config.title.trim(),
+      content: config.content.trim(),
+      acceptLabel: config.acceptLabel.trim(),
+      declineLabel: config.declineLabel.trim(),
+      requireAcceptance: config.requireAcceptance,
+    };
+    await db()
+      .insert(disclaimerSettings)
+      .values({ id: DISCLAIMER_ID, ...values })
+      .onConflictDoUpdate({ target: disclaimerSettings.id, set: values });
+    return readOrCreateDisclaimer();
+  });
 
 /* ─── Info Modal Config ─── */
 
@@ -241,30 +379,54 @@ export interface InfoModalConfig {
   linkLabel: string;
 }
 
-const INFO_MODALS_KEY = "omnimedos_info_modals";
-
-export function getInfoModals(): InfoModalConfig[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(INFO_MODALS_KEY);
-    if (raw) return JSON.parse(raw) as InfoModalConfig[];
-  } catch { /* ignore */ }
-  return [];
+function infoModalRowToConfig(row: InfoModalRow): InfoModalConfig {
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    icon: row.icon,
+    linkLabel: row.linkLabel,
+  };
 }
 
-export function saveInfoModals(modals: InfoModalConfig[]): void {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(INFO_MODALS_KEY, JSON.stringify(modals));
-  }
+async function listInfoModals(): Promise<InfoModalConfig[]> {
+  const rows = await db().select().from(infoModals).orderBy(asc(infoModals.createdAt));
+  return rows.map(infoModalRowToConfig);
 }
 
-export function addInfoModal(modal: InfoModalConfig): void {
-  const modals = getInfoModals();
-  modals.push(modal);
-  saveInfoModals(modals);
-}
+export const getInfoModals = createServerFn({ method: "GET" }).handler(
+  async (): Promise<InfoModalConfig[]> => listInfoModals(),
+);
 
-export function removeInfoModal(id: string): void {
-  const modals = getInfoModals().filter((m) => m.id !== id);
-  saveInfoModals(modals);
-}
+export const addInfoModal = createServerFn({ method: "POST" })
+  .validator((modal: Omit<InfoModalConfig, "id">) => modal)
+  .handler(async ({ data: modal }): Promise<InfoModalConfig[]> => {
+    await requireAdmin();
+    if (
+      modal &&
+      typeof modal === "object" &&
+      isTrimmedLength(modal.title, 1, 120) &&
+      isTrimmedLength(modal.content, 1, 5000) &&
+      isTrimmedLength(modal.icon, 1, 16) &&
+      isTrimmedLength(modal.linkLabel, 1, 40)
+    ) {
+      await db().insert(infoModals).values({
+        id: crypto.randomUUID(),
+        title: modal.title.trim(),
+        content: modal.content.trim(),
+        icon: modal.icon.trim(),
+        linkLabel: modal.linkLabel.trim(),
+      });
+    }
+    return listInfoModals();
+  });
+
+export const removeInfoModal = createServerFn({ method: "POST" })
+  .validator((input: { id: string }) => input)
+  .handler(async ({ data: input }): Promise<InfoModalConfig[]> => {
+    await requireAdmin();
+    if (input && typeof input.id === "string") {
+      await db().delete(infoModals).where(eq(infoModals.id, input.id));
+    }
+    return listInfoModals();
+  });

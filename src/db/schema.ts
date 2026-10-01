@@ -683,3 +683,60 @@ export const challengeReviews = pgTable(
 
 export type ChallengeReviewRow = typeof challengeReviews.$inferSelect;
 export type NewChallengeReviewRow = typeof challengeReviews.$inferInsert;
+
+/**
+ * Admin-managed membership plans, one row per plan (plan-free, plan-basic, ...).
+ * Seeded from DEFAULT_PLANS on first read. Only price, storage_limit and the
+ * allow_* flags are editable from the admin page; rows are never added or
+ * removed there. Replaces the old localStorage plans list.
+ */
+export const membershipPlans = pgTable("membership_plans", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  tier: text("tier").notNull(),
+  price: numeric("price", { precision: 10, scale: 2 }).notNull(),
+  features: jsonb("features").$type<string[]>().notNull(),
+  allowLibrarian: boolean("allow_librarian").notNull().default(false),
+  allowChallenge: boolean("allow_challenge").notNull().default(false),
+  allowDownloads: boolean("allow_downloads").notNull().default(false),
+  allowAffiliate: boolean("allow_affiliate").notNull().default(false),
+  storageLimit: integer("storage_limit").notNull(), // MB
+  sortOrder: integer("sort_order").notNull(),
+});
+
+export type MembershipPlanRow = typeof membershipPlans.$inferSelect;
+export type NewMembershipPlanRow = typeof membershipPlans.$inferInsert;
+
+/**
+ * Single global, admin-managed disclaimer modal config. Same shape as
+ * promoSettings/licenseSettings — no userId, one row keyed by the fixed
+ * "global" id. Replaces the old localStorage-only disclaimer config.
+ */
+export const disclaimerSettings = pgTable("disclaimer_settings", {
+  id: text("id").primaryKey(),
+  enabled: boolean("enabled").notNull().default(false),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  acceptLabel: text("accept_label").notNull(),
+  declineLabel: text("decline_label").notNull(),
+  requireAcceptance: boolean("require_acceptance").notNull().default(true),
+});
+
+export type DisclaimerSettingsRow = typeof disclaimerSettings.$inferSelect;
+export type NewDisclaimerSettingsRow = typeof disclaimerSettings.$inferInsert;
+
+/**
+ * Admin-managed info modals (header navigation links), one row per modal.
+ * Ids are generated server-side. Replaces the old localStorage info modal list.
+ */
+export const infoModals = pgTable("info_modals", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  icon: text("icon").notNull(),
+  linkLabel: text("link_label").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type InfoModalRow = typeof infoModals.$inferSelect;
+export type NewInfoModalRow = typeof infoModals.$inferInsert;
