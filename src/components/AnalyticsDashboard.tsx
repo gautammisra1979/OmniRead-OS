@@ -4,66 +4,6 @@ import type { CatalogItem } from "~/data/catalog";
 import { useLanguage } from "~/components/LanguageProvider";
 
 /* ------------------------------------------------------------------ */
-/*  localStorage analytics log helpers                                 */
-/* ------------------------------------------------------------------ */
-
-const ANALYTICS_LOG_KEY = "omnimedos_analytics_log";
-
-interface AnalyticsEvent {
-  date: string; // YYYY-MM-DD
-  count: number;
-}
-
-function getAnalyticsLog(): AnalyticsEvent[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(ANALYTICS_LOG_KEY);
-    return raw ? (JSON.parse(raw) as AnalyticsEvent[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function recordProductAdded(): void {
-  if (typeof window === "undefined") return;
-  const today = new Date().toISOString().slice(0, 10);
-  const log = getAnalyticsLog();
-  const existing = log.find((e) => e.date === today);
-  if (existing) {
-    existing.count += 1;
-  } else {
-    log.push({ date: today, count: 1 });
-  }
-  localStorage.setItem(ANALYTICS_LOG_KEY, JSON.stringify(log));
-}
-
-function getTrend(): "up" | "down" | "flat" {
-  const log = getAnalyticsLog();
-  if (log.length < 2) return "flat";
-  const sorted = log.sort((a, b) => a.date.localeCompare(b.date));
-  const today = sorted[sorted.length - 1].count;
-  const yesterday = sorted[sorted.length - 2].count;
-  if (today > yesterday) return "up";
-  if (today < yesterday) return "down";
-  return "flat";
-}
-
-/** Build a 7-day activity array for the sparkline */
-function get7DayActivity(): { label: string; count: number }[] {
-  const log = getAnalyticsLog();
-  const days: { label: string; count: number }[] = [];
-  const now = new Date();
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-    const dateStr = d.toISOString().slice(0, 10);
-    const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
-    const match = log.find((e) => e.date === dateStr);
-    days.push({ label: dayLabel, count: match?.count ?? 0 });
-  }
-  return days;
-}
-
-/* ------------------------------------------------------------------ */
 /*  Type breakdown helpers                                             */
 /* ------------------------------------------------------------------ */
 
@@ -87,28 +27,6 @@ function getTypeBreakdown(items: CatalogItem[]): TypeBreakdown {
 /*  Panel sub-components                                              */
 /* ------------------------------------------------------------------ */
 
-function TrendIcon({ trend }: { trend: "up" | "down" | "flat" }) {
-  if (trend === "up") {
-    return (
-      <svg className="h-5 w-5 text-green-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
-      </svg>
-    );
-  }
-  if (trend === "down") {
-    return (
-      <svg className="h-5 w-5 text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6L9 12.75l4.286-4.286a11.948 11.948 0 015.306 6.324l.428 2.045a.75.75 0 001.47-.277l-.428-2.045a11.959 11.959 0 00-5.883-7.614l-2.74-1.22m0 0l-5.94 2.28m5.94-2.28l2.28 5.94" />
-      </svg>
-    );
-  }
-  return (
-    <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.776l.5-.5a.75.75 0 011.06 0l2.94 2.94a.75.75 0 001.06 0l2.94-2.94a.75.75 0 011.06 0l2.94 2.94a.75.75 0 001.06 0l2.94-2.94a.75.75 0 011.06 0l.5.5" />
-    </svg>
-  );
-}
-
 function PanelCard({
   children,
   title,
@@ -130,138 +48,6 @@ function PanelCard({
       </h3>
       {children}
     </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  7-Day Activity Sparkline (Pure SVG)                                */
-/* ------------------------------------------------------------------ */
-
-function SparklinePanel({ activity, t }: { activity: { label: string; count: number }[]; t: (k: string) => string }) {
-  const maxCount = Math.max(...activity.map((d) => d.count), 1);
-  const width = 240;
-  const height = 60;
-  const padding = 4;
-  const chartW = width - padding * 2;
-  const chartH = height - padding * 2;
-
-  if (activity.length < 2) {
-    return (
-      <PanelCard title={t("admin.analytics.sparkline")}>
-        <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>{t("admin.analytics.noActivity")}</p>
-      </PanelCard>
-    );
-  }
-
-  const points = activity.map((d, i) => {
-    const x = padding + (i / (activity.length - 1)) * chartW;
-    const y = padding + chartH - (d.count / maxCount) * chartH;
-    return `${x},${y}`;
-  });
-
-  const polylinePoints = points.join(" ");
-
-  // Trend vs last week: compare first half vs second half
-  const mid = Math.floor(activity.length / 2);
-  const firstHalf = activity.slice(0, mid).reduce((s, d) => s + d.count, 0);
-  const secondHalf = activity.slice(mid).reduce((s, d) => s + d.count, 0);
-  let trendArrow: "up" | "down" | "flat" = "flat";
-  if (secondHalf > firstHalf) trendArrow = "up";
-  else if (secondHalf < firstHalf) trendArrow = "down";
-
-  return (
-    <PanelCard title={t("admin.analytics.sparkline")}>
-      <p className="mb-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
-        {t("admin.analytics.sparklineDesc")}
-      </p>
-      <svg
-        viewBox={`0 0 ${width} ${height + 18}`}
-        className="w-full"
-        role="img"
-        aria-label={t("admin.analytics.sparklineDesc")}
-      >
-        {/* Grid lines */}
-        {[0.25, 0.5, 0.75].map((fraction, idx) => {
-          const y = padding + chartH - fraction * chartH;
-          return (
-            <line
-              key={idx}
-              x1={padding}
-              y1={y}
-              x2={padding + chartW}
-              y2={y}
-              stroke="var(--color-border)"
-              strokeWidth={0.5}
-              strokeDasharray="2,2"
-              aria-hidden="true"
-            />
-          );
-        })}
-        {/* Area fill under the line */}
-        <polygon
-          points={`${padding},${padding + chartH} ${polylinePoints} ${padding + chartW},${padding + chartH}`}
-          fill="var(--color-primary)"
-          fillOpacity={0.1}
-          aria-hidden="true"
-        />
-        {/* The sparkline */}
-        <polyline
-          points={polylinePoints}
-          fill="none"
-          stroke="var(--color-primary)"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        />
-        {/* Data dots */}
-        {activity.map((d, i) => {
-          const x = padding + (i / (activity.length - 1)) * chartW;
-          const y = padding + chartH - (d.count / maxCount) * chartH;
-          return (
-            <circle
-              key={i}
-              cx={x}
-              cy={y}
-              r={2.5}
-              fill="var(--color-primary)"
-              stroke="var(--color-bg)"
-              strokeWidth={1}
-              aria-hidden="true"
-            />
-          );
-        })}
-        {/* Day labels */}
-        {activity.map((d, i) => {
-          const x = padding + (i / (activity.length - 1)) * chartW;
-          return (
-            <text
-              key={i}
-              x={x}
-              y={height + 10}
-              textAnchor="middle"
-              fill="var(--color-text-muted)"
-              fontSize={8}
-              aria-hidden="true"
-            >
-              {d.label}
-            </text>
-          );
-        })}
-      </svg>
-      {/* Trend indicator */}
-      <div className="mt-2 flex items-center gap-1.5 text-xs" style={{ color: "var(--color-text-muted)" }}>
-        <TrendIcon trend={trendArrow} />
-        <span>
-          {trendArrow === "up"
-            ? "↑"
-            : trendArrow === "down"
-              ? "↓"
-              : "→"}{" "}
-          {t("admin.analytics.vsLastWeek")}
-        </span>
-      </div>
-    </PanelCard>
   );
 }
 
@@ -489,11 +275,9 @@ function QuickStatsRow({ items, t }: { items: CatalogItem[]; t: (k: string) => s
 export function AnalyticsDashboard() {
   const { t } = useLanguage();
   const [items, setItems] = useState<CatalogItem[]>([]);
-  const [trend, setTrend] = useState<"up" | "down" | "flat">("flat");
 
   const refresh = useCallback(() => {
     getCatalogItems().then(setItems).catch(() => setItems([]));
-    setTrend(getTrend());
     // Dispatch analytics refresh event so other components can react
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("omnimeda-analytics-refresh"));
@@ -507,7 +291,6 @@ export function AnalyticsDashboard() {
   // Listen for catalog publish events
   useEffect(() => {
     const handler = () => {
-      recordProductAdded();
       refresh();
     };
     window.addEventListener("omnimeda-product-added", handler);
@@ -523,9 +306,6 @@ export function AnalyticsDashboard() {
   const recent = [...items]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 5);
-
-  // 7-day activity data
-  const activity = get7DayActivity();
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
@@ -550,14 +330,6 @@ export function AnalyticsDashboard() {
           <div className="flex items-center gap-3">
             <span className="text-3xl font-bold" style={{ color: "var(--color-text)" }}>
               {totalProducts}
-            </span>
-            <TrendIcon trend={trend} />
-            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-              {trend === "up"
-                ? t("admin.analytics.trendUp")
-                : trend === "down"
-                  ? t("admin.analytics.trendDown")
-                  : t("admin.analytics.trendFlat")}
             </span>
           </div>
           <p className="mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
@@ -674,9 +446,8 @@ export function AnalyticsDashboard() {
         </PanelCard>
       </div>
 
-      {/* Secondary 3-panel grid: Sparkline, Revenue Projection, Format Diversity Ring */}
-      <div className="mt-5 grid gap-5 sm:grid-cols-3">
-        <SparklinePanel activity={activity} t={t} />
+      {/* Secondary 2-panel grid: Revenue Projection, Format Diversity Ring */}
+      <div className="mt-5 grid gap-5 sm:grid-cols-2">
         <RevenueProjectionPanel portfolioValue={portfolioValue} t={t} />
         <FormatDiversityRing breakdown={breakdown} t={t} />
       </div>
