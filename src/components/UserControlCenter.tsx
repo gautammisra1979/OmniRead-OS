@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import { useBranding } from "~/components/BrandingProvider";
+import { authClient } from "~/lib/auth-client";
 import { type Locale } from "~/data/translations";
 import { getWallet, addCredits } from "~/data/wallet";
 import {
@@ -67,12 +68,15 @@ export function UserControlCenter({
 
   // Profile form state
   const [profileName, setProfileName] = useState("");
-  const [profileEmail, setProfileEmail] = useState("");
+  const [profileError, setProfileError] = useState("");
+  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const sessionUser = session?.user;
+  const isSignedIn = !!sessionUser && !sessionUser.isAnonymous;
   const [profileDisplayTheme, setProfileDisplayTheme] = useState("dark");
   const [profileLang, setProfileLang] = useState<Locale>(locale);
 
   // Saved values for cancel/restore
-  const savedProfile = useRef({ name: "", email: "", theme: "dark", lang: locale as Locale });
+  const savedProfile = useRef({ name: "", theme: "dark", lang: locale as Locale });
 
   // Billing state
   const [walletCredits, setWalletCredits] = useState(0);
@@ -100,14 +104,10 @@ export function UserControlCenter({
     setPersona(p);
 
     // Load stored profile values
-    const storedName = localStorage.getItem("omnimedia_profile_name") ?? "";
-    const storedEmail = localStorage.getItem("omnimedia_profile_email") ?? "";
     const storedTheme = localStorage.getItem("omnimedia_profile_theme") ?? "dark";
-    setProfileName(storedName);
-    setProfileEmail(storedEmail);
     setProfileDisplayTheme(storedTheme);
     setProfileLang(locale);
-    savedProfile.current = { name: storedName, email: storedEmail, theme: storedTheme, lang: locale };
+    savedProfile.current = { ...savedProfile.current, theme: storedTheme, lang: locale };
 
     // Billing
     getWallet().then((wallet) => setWalletCredits(wallet.credits));
@@ -125,17 +125,37 @@ export function UserControlCenter({
     setActiveTab("profile");
   }, [open, locale]);
 
-  const handleSaveProfile = useCallback(() => {
-    localStorage.setItem("omnimedia_profile_name", profileName);
-    localStorage.setItem("omnimedia_profile_email", profileEmail);
+  // Name comes from the Better Auth user record, not localStorage.
+  useEffect(() => {
+    if (!open) return;
+    const name = isSignedIn ? (sessionUser?.name ?? "") : "";
+    setProfileName(name);
+    setProfileError("");
+    savedProfile.current = { ...savedProfile.current, name };
+  }, [open, isSignedIn, sessionUser?.name]);
+
+  const handleSaveProfile = useCallback(async () => {
+    setProfileError("");
+    let name = profileName;
+    if (isSignedIn) {
+      name = profileName.trim();
+      if (name !== (sessionUser?.name ?? "")) {
+        const { error } = await authClient.updateUser({ name });
+        if (error) {
+          setProfileError(error.message ?? "Could not update your name.");
+          return;
+        }
+        setProfileName(name);
+      }
+    }
     localStorage.setItem("omnimedia_profile_theme", profileDisplayTheme);
     setLocale(profileLang);
-    savedProfile.current = { name: profileName, email: profileEmail, theme: profileDisplayTheme, lang: profileLang };
-  }, [profileName, profileEmail, profileDisplayTheme, profileLang, setLocale]);
+    savedProfile.current = { name, theme: profileDisplayTheme, lang: profileLang };
+  }, [isSignedIn, sessionUser?.name, profileName, profileDisplayTheme, profileLang, setLocale]);
 
   const handleCancel = useCallback(() => {
     setProfileName(savedProfile.current.name);
-    setProfileEmail(savedProfile.current.email);
+    setProfileError("");
     setProfileDisplayTheme(savedProfile.current.theme);
     setProfileLang(savedProfile.current.lang);
     onClose();
@@ -177,43 +197,53 @@ export function UserControlCenter({
               {t("controlCenter.profile")}
             </h3>
 
-            <div>
-              <label htmlFor="ucc-name" className="block text-xs mb-1" style={{ color: "var(--color-text-muted)" }}>
-                {t("profile.name")}
-              </label>
-              <input
-                id="ucc-name"
-                type="text"
-                value={profileName}
-                onChange={(e) => setProfileName(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
-                style={{
-                  backgroundColor: "var(--color-bg,#0f172a)",
-                  color: "var(--color-text,#f8fafc)",
-                  borderColor: "var(--color-border,#334155)",
-                }}
-                placeholder={t("profile.name")}
-              />
-            </div>
+            {sessionPending ? null : !isSignedIn ? (
+              <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+                {t("profile.signInToManage")}
+              </p>
+            ) : (
+              <>
+                <div>
+                  <label htmlFor="ucc-name" className="block text-xs mb-1" style={{ color: "var(--color-text-muted)" }}>
+                    {t("profile.name")}
+                  </label>
+                  <input
+                    id="ucc-name"
+                    type="text"
+                    value={profileName}
+                    onChange={(e) => setProfileName(e.target.value)}
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    style={{
+                      backgroundColor: "var(--color-bg,#0f172a)",
+                      color: "var(--color-text,#f8fafc)",
+                      borderColor: "var(--color-border,#334155)",
+                    }}
+                    placeholder={t("profile.name")}
+                  />
+                  {profileError && (
+                    <p className="mt-1 text-xs text-red-400" role="alert">{profileError}</p>
+                  )}
+                </div>
 
-            <div>
-              <label htmlFor="ucc-email" className="block text-xs mb-1" style={{ color: "var(--color-text-muted)" }}>
-                {t("profile.email")}
-              </label>
-              <input
-                id="ucc-email"
-                type="email"
-                value={profileEmail}
-                onChange={(e) => setProfileEmail(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
-                style={{
-                  backgroundColor: "var(--color-bg,#0f172a)",
-                  color: "var(--color-text,#f8fafc)",
-                  borderColor: "var(--color-border,#334155)",
-                }}
-                placeholder="user@example.com"
-              />
-            </div>
+                <div>
+                  <label htmlFor="ucc-email" className="block text-xs mb-1" style={{ color: "var(--color-text-muted)" }}>
+                    {t("profile.email")}
+                  </label>
+                  <input
+                    id="ucc-email"
+                    type="email"
+                    value={sessionUser?.email ?? ""}
+                    readOnly
+                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    style={{
+                      backgroundColor: "var(--color-bg,#0f172a)",
+                      color: "var(--color-text,#f8fafc)",
+                      borderColor: "var(--color-border,#334155)",
+                    }}
+                  />
+                </div>
+              </>
+            )}
 
             <div>
               <label htmlFor="ucc-theme" className="block text-xs mb-1" style={{ color: "var(--color-text-muted)" }}>

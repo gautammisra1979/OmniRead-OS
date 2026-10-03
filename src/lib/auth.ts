@@ -264,6 +264,31 @@ export const auth = betterAuth({
           return { data: user };
         },
       },
+      update: {
+        // Session 75: profile rules for POST /api/auth/update-user only. Every
+        // other user-row update (anonymous plugin, OAuth link-account setting
+        // emailVerified, onLinkAccount) has a different ctx.path and passes
+        // through untouched. Email changes are already rejected by Better
+        // Auth's update-user and user.changeEmail is not configured.
+        before: async (data, context) => {
+          if (context?.path !== "/update-user") return;
+          const sessionUser = context.context.session?.user as
+            | { isAnonymous?: boolean | null }
+            | undefined;
+          if (!sessionUser || sessionUser.isAnonymous) {
+            throw new APIError("FORBIDDEN", { message: "Sign in to update your profile." });
+          }
+          if (data.image !== undefined) {
+            throw new APIError("BAD_REQUEST", { message: "Only the display name can be updated." });
+          }
+          if (data.name === undefined) return;
+          const name = typeof data.name === "string" ? data.name.trim() : "";
+          if (name.length < 1 || name.length > 80 || /\p{Cc}/u.test(name)) {
+            throw new APIError("BAD_REQUEST", { message: "Display name must be 1 to 80 characters." });
+          }
+          return { data: { ...data, name } };
+        },
+      },
     },
   },
   plugins: [
