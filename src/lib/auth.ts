@@ -1,4 +1,5 @@
 import { betterAuth, APIError } from "better-auth";
+import { createAuthMiddleware } from "better-auth/api";
 import { anonymous } from "better-auth/plugins";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { drizzle } from "drizzle-orm/neon-http";
@@ -211,6 +212,30 @@ export const auth = betterAuth({
     : undefined,
   session: {
     expiresIn: ANONYMOUS_SESSION_EXPIRES_IN_SECONDS,
+  },
+  hooks: {
+    // Session 75: public email sign-up is closed because there is no email
+    // verification yet. An unverified account lets anyone register someone
+    // else's email first, which blocks that person's later Google/Apple
+    // sign-in (Better Auth refuses to link to an unverified local account).
+    // This sits in hooks.before, not databaseHooks.user.create.before, so
+    // registered and unregistered emails get the same answer: sign-up looks
+    // the email up before create.before runs and returns a generic 200 for an
+    // existing one, so a rejection in create.before would be an enumeration
+    // oracle and undo the Session 63 fix. The same "Email unavailable."
+    // 400 as the reserved-admin check is used on purpose. The server-side
+    // admin claim (src/data/adminClaim.ts) passes through via its token
+    // header, and create.before below still re-checks it. Reopened together
+    // with email verification in the account-creation design session
+    // (Backlog: "Settings toggle: Allow Public Signup").
+    before: createAuthMiddleware(async (ctx) => {
+      if (
+        ctx.path === "/sign-up/email" &&
+        ctx.headers?.get(ADMIN_CLAIM_TOKEN_HEADER) !== adminClaimToken
+      ) {
+        throw new APIError("BAD_REQUEST", { message: "Email unavailable." });
+      }
+    }),
   },
   databaseHooks: {
     user: {
