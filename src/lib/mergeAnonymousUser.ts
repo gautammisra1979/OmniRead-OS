@@ -14,6 +14,7 @@ import {
   challengeProgress,
   challengeSettings,
   challengeReviews,
+  notifyRequests,
 } from "~/db/schema";
 
 /**
@@ -25,8 +26,8 @@ import {
  * reassign to `realUserId` is deleted automatically along with the
  * anonymous user. That cascade is what implements "discard the anonymous
  * row" for the conflict cases below: we simply don't touch those rows, and
- * they disappear on their own. `mediaProgress`, `challengeProgress` and
- * `challengeReviews` are composite-key tables (userId plus a second column),
+ * they disappear on their own. `mediaProgress`, `challengeProgress`,
+ * `challengeReviews` and `notifyRequests` are composite-key tables (userId plus a second column),
  * so their conflict checks are done per-row rather than once per user.
  * `challengeSettings` is one row per user, like `cartState`.
  *
@@ -60,7 +61,7 @@ export async function mergeAnonymousUserData(
   try {
     // Reads that decide the branching below for the one-row-per-user
     // tables (cartState, wallet, challengeSettings) and the composite-key
-    // tables (mediaProgress, challengeProgress, challengeReviews). These run ahead of the atomic write batch — the
+    // tables (mediaProgress, challengeProgress, challengeReviews, notifyRequests). These run ahead of the atomic write batch — the
     // neon-http driver has no interactive/read-then-write transaction
     // support (see the comment on `database.batch(...)` below), so this
     // read-then-decide step isn't itself covered by the same atomicity
@@ -83,6 +84,8 @@ export async function mergeAnonymousUserData(
       realChallengeSettingsRows,
       anonChallengeReviewRows,
       realChallengeReviewRows,
+      anonNotifyRows,
+      realNotifyRows,
     ] = await Promise.all([
         database.select().from(cartState).where(eq(cartState.userId, anonUserId)),
         database.select().from(cartState).where(eq(cartState.userId, realUserId)),
@@ -100,6 +103,8 @@ export async function mergeAnonymousUserData(
         database.select().from(challengeSettings).where(eq(challengeSettings.userId, realUserId)),
         database.select().from(challengeReviews).where(eq(challengeReviews.userId, anonUserId)),
         database.select().from(challengeReviews).where(eq(challengeReviews.userId, realUserId)),
+        database.select().from(notifyRequests).where(eq(notifyRequests.userId, anonUserId)),
+        database.select().from(notifyRequests).where(eq(notifyRequests.userId, realUserId)),
       ]);
 
     const conditionalOps: (ReturnType<typeof database.update> | ReturnType<typeof database.delete>)[] = [];
@@ -223,6 +228,27 @@ export async function mergeAnonymousUserData(
               and(
                 eq(challengeProgress.userId, anonUserId),
                 eq(challengeProgress.productId, row.productId),
+              ),
+            ),
+        );
+      }
+    }
+
+    // notifyRequests: composite primary key (userId, productId) — same
+    // per-product handling as challengeProgress. Reassign each anonymous row
+    // only when the real user has no request for that product; where both
+    // have one, the anonymous row is left alone to cascade-delete.
+    const realNotifyProductIds = new Set(realNotifyRows.map((row) => row.productId));
+    for (const row of anonNotifyRows) {
+      if (!realNotifyProductIds.has(row.productId)) {
+        conditionalOps.push(
+          database
+            .update(notifyRequests)
+            .set({ userId: realUserId })
+            .where(
+              and(
+                eq(notifyRequests.userId, anonUserId),
+                eq(notifyRequests.productId, row.productId),
               ),
             ),
         );

@@ -684,6 +684,26 @@ export const challengeReviews = pgTable(
 export type ChallengeReviewRow = typeof challengeReviews.$inferSelect;
 export type NewChallengeReviewRow = typeof challengeReviews.$inferInsert;
 
+// Session 75: one row per visitor per coming-soon product they asked to be
+// notified about. Storage only; nothing sends notifications yet.
+export const notifyRequests = pgTable(
+  "notify_requests",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    productId: text("product_id")
+      .notNull()
+      .references(() => catalogItems.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.productId] }),
+  }),
+);
+
+export type NotifyRequestRow = typeof notifyRequests.$inferSelect;
+
 /**
  * Admin-managed membership plans, one row per plan (plan-free, plan-basic, ...).
  * Seeded from DEFAULT_PLANS on first read. Only price, storage_limit and the

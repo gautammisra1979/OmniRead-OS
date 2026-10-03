@@ -4,6 +4,7 @@ import { getAllProducts, applyRecoveryDiscount, type Product } from "~/data/prod
 import { getPromoSettings, DEFAULT_PROMO_SETTINGS, type PromoSettings } from "~/data/promotions";
 import { getRecoveryPromoCode } from "~/data/cart";
 import { getCatalogSignature } from "~/db/queries";
+import { getMyNotifyRequests, addNotifyRequest } from "~/data/notify";
 
 type CatalogSignature = { count: number; maxUpdatedAt: string | null };
 
@@ -41,6 +42,23 @@ export function ComingSoonSection() {
   useEffect(() => {
     setHydrated(true);
   }, []);
+
+  // Restore this visitor's notified state once hydrated.
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    getMyNotifyRequests()
+      .then((ids) => {
+        if (cancelled) return;
+        setNotifyIds(new Set(ids));
+      })
+      .catch(() => {
+        // Keep the empty set.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated]);
 
   // DB-backed promo settings + this visitor's personal recovery discount
   // (Step 26 Phase 4). Fetched once on mount — they don't need 2-second
@@ -107,19 +125,17 @@ export function ComingSoonSection() {
     };
   }, [refreshKey, promoSettings, recoveryPromo]);
 
-  const handleNotify = useCallback((id: string) => {
-    setNotifyIds((prev) => {
-      const next = new Set(prev);
-      next.add(id);
-      return next;
-    });
-    // Store notification preference
-    if (typeof window !== "undefined") {
-      const existing = JSON.parse(localStorage.getItem("omnimedos_notify_list") || "[]");
-      if (!existing.includes(id)) {
-        existing.push(id);
-        localStorage.setItem("omnimedos_notify_list", JSON.stringify(existing));
-      }
+  const handleNotify = useCallback(async (id: string) => {
+    try {
+      const ok = await addNotifyRequest(id);
+      if (!ok) return;
+      setNotifyIds((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
+    } catch {
+      // Request failed — leave the button as it was.
     }
   }, []);
 
