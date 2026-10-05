@@ -65,38 +65,6 @@ const dbGetDownloads = createServerFn({ method: "GET" }).handler(
   },
 );
 
-const dbAddDownload = createServerFn({ method: "POST" })
-  .validator(
-    (record: {
-      productId: string;
-      productTitle: string;
-      productAuthor: string;
-      productType: "ebook" | "audiobook" | "video";
-      price: number;
-      purchasedAt: string;
-      sessionId: string;
-    }) => record,
-  )
-  .handler(async ({ data: record }): Promise<DownloadRecord> => {
-    const userId = await getUserId();
-    const [row] = await db()
-      .insert(downloads)
-      .values({
-        userId,
-        productId: record.productId,
-        productTitle: record.productTitle,
-        productAuthor: record.productAuthor,
-        productType: record.productType,
-        price: String(record.price),
-        purchasedAt: new Date(record.purchasedAt),
-        lastDownloadedAt: null,
-        downloadCount: 0,
-        sessionId: record.sessionId,
-      })
-      .returning();
-    return rowToRecord(row);
-  });
-
 const dbIncrementDownloadCount = createServerFn({ method: "POST" })
   .validator((id: string) => id)
   .handler(async ({ data: id }): Promise<void> => {
@@ -140,21 +108,6 @@ const dbMarkSingleDownloadRefunded = createServerFn({ method: "POST" })
 
 export async function getDownloads(): Promise<DownloadRecord[]> {
   return dbGetDownloads();
-}
-
-/** Insert a new download row (called from stripeCheckout.ts on purchase
- *  completion) — not part of the original localStorage API, but needed now
- *  that "push onto the array and save" isn't how a DB row gets created. */
-export async function addDownload(record: {
-  productId: string;
-  productTitle: string;
-  productAuthor: string;
-  productType: "ebook" | "audiobook" | "video";
-  price: number;
-  purchasedAt: string;
-  sessionId: string;
-}): Promise<DownloadRecord> {
-  return dbAddDownload({ data: record });
 }
 
 export async function incrementDownloadCount(id: string): Promise<void> {

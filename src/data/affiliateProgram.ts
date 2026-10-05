@@ -126,7 +126,7 @@ function daysFromNow(days: number): Date {
  * session's own userId via getUserId(), not an arbitrary target user, so it
  * can't be reused here.
  *
- * Shared by dbResolvePendingLedgerEntries, dbGetPayableSummary, and
+ * Shared by dbGetPayableSummary and
  * dbSettleAffiliatePayout so the resolution logic lives in one place instead
  * of being re-implemented per caller (matching cart.ts's loadCart() shape).
  */
@@ -363,10 +363,9 @@ const dbRecordAffiliateClick = createServerFn({ method: "POST" })
     });
   });
 
-/** Shared by dbCreditAffiliateForPurchase (client path, buyerUserId from
- *  session) and creditAffiliateForPurchaseForBuyer (server-to-server path,
- *  e.g. the Stripe webhook, where buyerUserId comes from trusted checkout
- *  session metadata instead). */
+/** Shared server-side credit logic, called only by
+ *  creditAffiliateForPurchaseForBuyer (server-to-server path, e.g. the Stripe
+ *  webhook, where buyerUserId comes from trusted checkout session metadata). */
 async function creditAffiliateForBuyer(
   buyerUserId: string,
   data: { downloadId: string; productTitle: string; purchaseValue: number },
@@ -403,16 +402,6 @@ async function creditAffiliateForBuyer(
   });
 }
 
-const dbCreditAffiliateForPurchase = createServerFn({ method: "POST" })
-  .validator((data: { downloadId: string; productTitle: string; purchaseValue: number }) => data)
-  .handler(async ({ data }): Promise<void> => {
-    // Buyer identity comes from the session, never from the caller — this is
-    // a client-callable server function and downloadId/purchaseValue are
-    // client-supplied, but who gets charged/credited must not be.
-    const buyerUserId = await getUserId();
-    await creditAffiliateForBuyer(buyerUserId, data);
-  });
-
 const dbVoidAffiliateLedgerForDownload = createServerFn({ method: "POST" })
   .validator((downloadId: string) => downloadId)
   .handler(async ({ data: downloadId }): Promise<void> => {
@@ -424,33 +413,6 @@ const dbVoidAffiliateLedgerForDownload = createServerFn({ method: "POST" })
       .update(affiliateLedger)
       .set({ status: "voided", resolvedAt: new Date() })
       .where(and(eq(affiliateLedger.downloadId, downloadId), eq(affiliateLedger.status, "pending")));
-  });
-
-/**
- * Deliberately NOT requireAdmin()-gated — this must run from the affiliate's
- * own non-admin dashboard load. Every side effect is bounded server-side:
- * it only resolves rows that are (a) pending, (b) already past
- * holdPeriodDays (computed here from `createdAt`, never trusted from a
- * caller flag), and (c) belong to whatever `affiliateId` is passed. An
- * arbitrary caller can at most force early resolution of an
- * already-legitimately-earned amount into that SAME affiliate's own
- * account, on that affiliate's own standing payoutPreference — it can never
- * fabricate value, redirect it, or bypass the hold period. Same reasoning
- * as dbAddCredits/dbRedeemPoints's documented ungated status.
- */
-const dbResolvePendingLedgerEntries = createServerFn({ method: "POST" })
-  .validator((affiliateId: string) => affiliateId)
-  .handler(async ({ data: affiliateId }): Promise<void> => {
-    const database = db();
-    const affiliateRows = await database
-      .select()
-      .from(affiliateProfiles)
-      .where(eq(affiliateProfiles.id, affiliateId));
-    const affiliate = affiliateRows[0];
-    if (!affiliate) return;
-
-    const settings = await getAffiliateSettings();
-    await resolveEligibleForAffiliate(database, affiliate, settings);
   });
 
 export interface PayableSummaryRow {
@@ -619,21 +581,13 @@ export async function recordAffiliateClick(handle: string, sourcePage: string): 
   return dbRecordAffiliateClick({ data: { handle, sourcePage } });
 }
 
-export async function creditAffiliateForPurchase(data: {
-  downloadId: string;
-  productTitle: string;
-  purchaseValue: number;
-}): Promise<void> {
-  return dbCreditAffiliateForPurchase({ data });
-}
-
 /**
  * Server-to-server variant for src/routes/api/stripe/webhook.ts, where
  * there is no buyer session on the incoming request — buyerUserId here must
  * come from a trusted source (the Stripe checkout session's own metadata,
  * itself set server-side at session-creation time), never from an
  * untrusted caller. Not a createServerFn — never reachable as an RPC
- * endpoint, unlike creditAffiliateForPurchase() above.
+ * endpoint.
  */
 export async function creditAffiliateForPurchaseForBuyer(
   buyerUserId: string,
@@ -644,10 +598,6 @@ export async function creditAffiliateForPurchaseForBuyer(
 
 export async function voidAffiliateLedgerForDownload(downloadId: string): Promise<void> {
   return dbVoidAffiliateLedgerForDownload({ data: downloadId });
-}
-
-export async function resolvePendingLedgerEntries(affiliateId: string): Promise<void> {
-  return dbResolvePendingLedgerEntries({ data: affiliateId });
 }
 
 export async function getPayableSummary(): Promise<PayableSummaryRow[]> {

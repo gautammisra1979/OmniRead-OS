@@ -106,6 +106,9 @@ const dbDeductCredits = createServerFn({ method: "POST" })
     const userId = await getUserId();
     const row = await loadWalletRow(userId);
     const current = row ? rowToWalletState(row) : { ...DEFAULT_WALLET };
+    if (!Number.isInteger(amount) || amount <= 0) {
+      return { ok: false, wallet: current };
+    }
     if (current.credits < amount) {
       return { ok: false, wallet: current };
     }
@@ -126,6 +129,7 @@ const dbDeductCredits = createServerFn({ method: "POST" })
 const dbAddCredits = createServerFn({ method: "POST" })
   .validator((amount: number) => amount)
   .handler(async ({ data: amount }): Promise<WalletState> => {
+    if (!Number.isInteger(amount) || amount <= 0) throw new Error("Invalid amount");
     const userId = await getUserId();
     const row = await loadWalletRow(userId);
     const current = row ? rowToWalletState(row) : { ...DEFAULT_WALLET };
