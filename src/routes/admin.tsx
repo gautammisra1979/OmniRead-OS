@@ -64,10 +64,8 @@ import { getRecoveryKey, logoutAdmin } from "~/data/adminRecovery";
 import { checkIsAdmin } from "~/lib/checkIsAdmin";
 import { dispatchLicenseChange } from "~/components/LicenseGate";
 import { authClient } from "~/lib/auth-client";
-import { OffboardingCenter } from "~/components/OffboardingCenter";
 import { RefundClaimsManager } from "~/components/RefundClaimsManager";
 import { EmailSettings } from "~/components/EmailSettings";
-import { PlatformFactoryReset } from "~/components/PlatformFactoryReset";
 import { StorageConsole } from "~/components/StorageConsole";
 import { StyleCustomizer, AnnouncementConfigSection } from "~/components/StyleCustomizer";
 import { MembershipConfigSection, CatalogAccessControl } from "~/components/CheckoutUpsells";
@@ -266,9 +264,6 @@ function AdminDashboard() {
       <DisclaimerConfigSection />
       <InfoModalConfigSection />
 
-      {/* Offboarding Control Center */}
-      <OffboardingCenter />
-
       {/* Refund & Claims Manager */}
       <RefundClaimsManager />
 
@@ -282,9 +277,6 @@ function AdminDashboard() {
 
       {/* Recovery Key */}
       <RecoveryKeySection />
-
-      {/* Platform Factory Reset */}
-      <PlatformFactoryReset />
     </div>
   );
 }
