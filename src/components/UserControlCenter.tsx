@@ -17,11 +17,8 @@ import {
   formatBytes,
   getUsagePercentage,
   getPersona,
-  exportBackup,
-  downloadBackup,
   type Persona,
 } from "~/data/storageBackup";
-import { getSyncStatus, disconnectCloud, uploadToCloud } from "~/data/cloudSync";
 
 type TabId = "profile" | "billing" | "history" | "storage";
 
@@ -89,12 +86,6 @@ export function UserControlCenter({
   // Storage state
   const [storageUsed, setStorageUsed] = useState(0);
   const [storagePercent, setStoragePercent] = useState(0);
-  const [cloudStatus, setCloudStatus] = useState<ReturnType<typeof getSyncStatus>>({
-    connected: false,
-    provider: null,
-    lastSyncAt: null,
-    syncing: false,
-  });
 
   // Load data when modal opens
   useEffect(() => {
@@ -119,7 +110,6 @@ export function UserControlCenter({
     // Storage
     setStorageUsed(getLocalStorageUsageBytes());
     setStoragePercent(getUsagePercentage());
-    setCloudStatus(getSyncStatus());
 
     // Reset to first tab
     setActiveTab("profile");
@@ -171,16 +161,6 @@ export function UserControlCenter({
         }),
       );
     }, 1500);
-  }, []);
-
-  const handleExport = useCallback(async () => {
-    const backup = await exportBackup();
-    downloadBackup(backup);
-  }, []);
-
-  const handleCloudFlush = useCallback(async () => {
-    await uploadToCloud();
-    setCloudStatus(getSyncStatus());
   }, []);
 
   if (!open) return null;
@@ -524,67 +504,6 @@ export function UserControlCenter({
               </p>
             </div>
 
-            {/* Export */}
-            <div
-              className="rounded-xl border p-5"
-              style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-surface,#1e293b)/30" }}
-            >
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-muted)" }}>
-                {t("storage.exportBtn")}
-              </h4>
-              <button
-                type="button"
-                onClick={handleExport}
-                className="rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:brightness-110"
-                style={{ backgroundColor: "var(--color-primary,#6366f1)" }}
-              >
-                {t("storage.exportBtn")}
-              </button>
-            </div>
-
-            {/* Cloud Sync */}
-            <div
-              className="rounded-xl border p-5"
-              style={{ borderColor: "var(--color-border,#334155)", backgroundColor: "var(--color-surface,#1e293b)/30" }}
-            >
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-muted)" }}>
-                {t("cloud.title")}
-              </h4>
-              <div className="flex items-center gap-3">
-                {cloudStatus.connected ? (
-                  <>
-                    <span className="rounded-full bg-emerald-900/30 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-                      {t("cloud.connected")}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleCloudFlush}
-                      className="rounded-lg px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:brightness-110"
-                      style={{ backgroundColor: "var(--color-primary,#6366f1)" }}
-                    >
-                      {t("cloud.syncNow")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { disconnectCloud(); setCloudStatus(getSyncStatus()); }}
-                      className="rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors"
-                      style={{ borderColor: "var(--color-border,#334155)", color: "var(--color-text-muted)" }}
-                    >
-                      {t("cloud.disconnect")}
-                    </button>
-                  </>
-                ) : (
-                  <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-                    {t("cloud.notConnected")}
-                  </p>
-                )}
-              </div>
-              {cloudStatus.lastSyncAt && (
-                <p className="mt-2 text-[10px]" style={{ color: "var(--color-text-muted)" }}>
-                  {t("cloud.lastSync")}: {new Date(cloudStatus.lastSyncAt).toLocaleString()}
-                </p>
-              )}
-            </div>
           </div>
         );
     }

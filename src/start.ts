@@ -30,7 +30,7 @@ function buildCsp(nonce: string): string {
     "font-src 'self' https://fonts.gstatic.com",
     `img-src 'self' data: ${BLOB_PUBLIC_HOST}`,
     `media-src 'self' blob: ${BLOB_PUBLIC_HOST}`,
-    "connect-src 'self' https://www.googleapis.com",
+    "connect-src 'self'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
