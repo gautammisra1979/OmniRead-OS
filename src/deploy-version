@@ -9,3 +9,4 @@ v1.0.9 - Step 25 visual-language pass (rounded corners, shadows, slow fades, Kin
 v1.0.10 - User-facing copy for pending-activation modal
 v1.0.11 - Sessions 23-25: Catalog storefront read migration (Tiers A+B) + polling change-signal
 v1.0.12 - Session 28: Real affiliate program - Postgres backend, multi-affiliate admin, referral capture, commission crediting & payouts
+v1.0.13 - Sessions 29-79: Infra & Migration batch - Postgres/Better Auth/Blob migration, Stripe Checkout + webhooks, security audit fixes, TanStack Start CVE-2026-102989 patch
