@@ -18,9 +18,10 @@ import { user } from "~/db/auth-schema";
 /**
  * Phase 1 of Step 26 (Backend Migration): schema only.
  * Mirrors the current CatalogItem interface in src/data/catalog.ts, with one
- * deliberate exception — coverImage and mediaFile.dataUrl (base64 data URLs)
- * become nullable `cover_key` / `media_key` text columns holding
- * provider-neutral storage keys (see src/lib/storage).
+ * deliberate exception — coverImage and the media file become nullable
+ * `cover_key` / `media_key` text columns holding provider-neutral storage keys
+ * (see src/lib/storage); the browser only sees mediaFile.hasFile, never the
+ * media key.
  *
  * `type` and `status` are plain text (not Postgres enums) on purpose: CSV
  * import is still being iterated on, and DB-level enums reject bad rows with

@@ -8,10 +8,10 @@ export interface CatalogItem {
   type: "ebook" | "audiobook" | "video";
   format: string; // "PDF E-Book", "MP3 Audiobook", "MP4 Video Guide"
   description: string;
-  coverImage: string | null; // base64 data URL from cover upload
+  coverImage: string | null; // public cover URL built from the stored cover key
   mediaFile: {
     name: string;
-    dataUrl: string | null; // base64 data URL from file upload
+    hasFile: boolean; // whether a private media file exists; the key never reaches the browser
   };
   createdAt: string; // ISO date string
   // Lifecycle status

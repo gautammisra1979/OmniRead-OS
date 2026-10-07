@@ -33,7 +33,7 @@ export function ProgressTracker({ product }: ProgressTrackerProps) {
   const isEbook = product.type === "ebook";
   const isAudio = product.type === "audiobook";
   const isVideo = product.type === "video";
-  const hasMedia = !!product.mediaFile?.dataUrl;
+  const hasMedia = !!product.mediaFile?.hasFile;
 
   // Latest values and save bookkeeping live in refs so the save scheduling and the
   // DOM listeners never depend on (and never re-subscribe for) React state.
@@ -377,7 +377,7 @@ export function ProgressTracker({ product }: ProgressTrackerProps) {
           </p>
           <audio
             ref={audioRef}
-            src={product.mediaFile?.dataUrl ?? undefined}
+            src={product.mediaFile?.hasFile ? `/api/media/${product.id}` : undefined}
             controls
             className="w-full"
             aria-label={`${isAudio ? "Audio" : "Video"} player for ${product.title}`}

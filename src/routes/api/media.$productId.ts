@@ -1,14 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { get } from "@vercel/blob";
-import { getCatalogItemById } from "~/db/queries";
+import { getMediaKeyForItem } from "~/db/queries";
 import { getUserId } from "~/lib/getUserId";
 import { hasPurchased } from "~/lib/mediaAccess";
+import { getStorage } from "~/lib/storage";
+import { mediaUrlTtlSeconds } from "~/lib/storage/mediaTtl";
 
 /**
- * Streams a catalog item's private media file (audiobook/video) to its
- * owner. Follows the same route pattern as
- * src/routes/api/blob/media-upload.ts. No HTTP Range/206 support yet — a
- * known v1 gap, not an oversight (affects scrubbing on longer audio/video).
+ * Gives a catalog item's owner access to its private media file
+ * (audiobook/video). After the sign-in and purchase checks it redirects (302)
+ * to a short-lived signed URL from the active storage adapter, so the storage
+ * provider serves the bytes directly, including HTTP Range requests for
+ * seeking. The signed URL lifetime is MEDIA_URL_TTL_SECONDS (default 1 hour).
  */
 export const Route = createFileRoute("/api/media/$productId")({
   server: {
@@ -25,8 +27,8 @@ export const Route = createFileRoute("/api/media/$productId")({
           return new Response("Unauthorized", { status: 401 });
         }
 
-        const item = await getCatalogItemById({ data: params.productId });
-        if (!item || !item.mediaFile.dataUrl) {
+        const key = await getMediaKeyForItem(params.productId);
+        if (!key) {
           return new Response("Not found", { status: 404 });
         }
 
@@ -35,20 +37,18 @@ export const Route = createFileRoute("/api/media/$productId")({
           return new Response("Forbidden", { status: 403 });
         }
 
-        const blob = await get(item.mediaFile.dataUrl, {
-          access: "private",
-          token: process.env.BLOB_MEDIA_READ_WRITE_TOKEN,
-        });
-        if (!blob) {
-          return new Response("Not found", { status: 404 });
+        let url: string;
+        try {
+          url = await getStorage().signedReadUrl(key, mediaUrlTtlSeconds());
+        } catch (err) {
+          console.error("Media signing failed:", err);
+          return new Response("Media temporarily unavailable", { status: 502 });
         }
 
-        const headers = new Headers();
-        headers.set("Content-Type", blob.blob.contentType || "application/octet-stream");
-        if (blob.blob.size) headers.set("Content-Length", String(blob.blob.size));
-        headers.set("Cache-Control", "private, no-store");
-
-        return new Response(blob.stream, { headers });
+        return new Response(null, {
+          status: 302,
+          headers: { Location: url, "Cache-Control": "private, no-store" },
+        });
       },
     },
   },

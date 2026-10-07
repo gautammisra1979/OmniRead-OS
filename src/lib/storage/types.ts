@@ -12,6 +12,10 @@ export interface StorageProvider {
   publicUrl(key: string): string | null;
   /** CSP connect-src sources the browser needs for direct uploads. */
   cspConnectOrigins(): string[];
+  /** Time-limited GET URL for a private object. */
+  signedReadUrl(key: string, expiresInSeconds: number): Promise<string>;
+  /** CSP sources the browser needs to display public images and play private media. */
+  cspSources(): { img: string[]; media: string[] };
   /** Browser-direct private media upload handshake. */
   handleClientUpload(request: Request): Promise<Response>;
 }

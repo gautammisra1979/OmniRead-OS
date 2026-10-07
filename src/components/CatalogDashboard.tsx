@@ -174,7 +174,7 @@ export function CatalogDashboard() {
     // by item id; nothing key-like is sent from the browser.
     const item = items.find((i) => i.id === id);
     const cleanup =
-      item?.coverImage || item?.mediaFile.dataUrl
+      item?.coverImage || item?.mediaFile.hasFile
         ? deleteCatalogFiles({ data: { itemId: id } })
         : Promise.resolve();
 

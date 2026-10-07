@@ -190,7 +190,7 @@ function ProductCard({
           <CrossSellGrid product={product as any} />
         )}
         {(product.type === "audiobook" || product.type === "video") && (
-          <MediaPlayer product={{ ...product, coverImage: null, mediaFile: { name: "", dataUrl: null }, quizMood: [], quizFormat: [], quizHook: [], quizPace: [], promoFlatBonus: 0, promoOverride: undefined, createdAt: "" } as any} />
+          <MediaPlayer product={{ ...product, coverImage: null, mediaFile: { name: "", hasFile: false }, quizMood: [], quizFormat: [], quizHook: [], quizPace: [], promoFlatBonus: 0, promoOverride: undefined, createdAt: "" } as any} />
         )}
       </div>
     </article>

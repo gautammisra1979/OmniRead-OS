@@ -58,8 +58,7 @@ function rowToCatalogItem(row: CatalogItemRow): CatalogItem {
     format: row.format,
     description: row.description,
     coverImage: row.coverKey ? getStorage().publicUrl(row.coverKey) : null,
-    // TODO(part B): stop sending the private media key to the browser.
-    mediaFile: { name: row.mediaName ?? "", dataUrl: row.mediaKey },
+    mediaFile: { name: row.mediaName ?? "", hasFile: !!row.mediaKey },
     createdAt: row.createdAt.toISOString(),
     status: (row.status ?? "live") as CatalogStatus,
     rating: row.rating ?? undefined,
@@ -93,6 +92,16 @@ export const getCatalogItemById = createServerFn({ method: "GET" })
       .where(eq(catalogItems.id, id));
     return rows[0] ? rowToCatalogItem(rows[0]) : null;
   });
+
+/** Server-only (deliberately not a createServerFn): the private media key must
+ *  never be callable from the browser. */
+export async function getMediaKeyForItem(id: string): Promise<string | null> {
+  const rows = await db()
+    .select({ mediaKey: catalogItems.mediaKey })
+    .from(catalogItems)
+    .where(eq(catalogItems.id, id));
+  return rows[0]?.mediaKey ?? null;
+}
 
 /** Excludes retired items. Original code defined getActiveCatalogItems with
  *  an identical filter under a separate name — preserved as an alias below

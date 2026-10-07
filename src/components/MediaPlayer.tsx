@@ -27,7 +27,7 @@ export function MediaPlayer({ product }: MediaPlayerProps) {
   if (product.type === "ebook") return null;
 
   const isVideo = product.type === "video";
-  const mediaUrl = product.mediaFile?.dataUrl
+  const mediaUrl = product.mediaFile?.hasFile
     ? `/api/media/${product.id}`
     : isVideo
       ? SAMPLE_VIDEO
@@ -160,7 +160,7 @@ export function MediaPlayer({ product }: MediaPlayerProps) {
       )}
 
       {/* No media placeholder */}
-      {!product.mediaFile?.dataUrl && (
+      {!product.mediaFile?.hasFile && (
         <div className="px-4 py-3 text-xs" style={{ color: "var(--color-text-muted,#94a3b8)", backgroundColor: "color-mix(in srgb, #fbbf24 10%, transparent)" }}>
           {t("media.noMedia")}
         </div>

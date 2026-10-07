@@ -316,7 +316,7 @@ function RouteComponent() {
               <div className="mt-6">
                 <LicenseGate feature="product-media" featureName="Media Player" featureIcon="🎬">
                   <MediaPlayer
-                    product={catalogItem ?? { ...product, coverImage: null, mediaFile: { name: "", dataUrl: null }, quizMood: [], quizFormat: [], quizHook: [], quizPace: [], promoFlatBonus: 0, promoOverride: undefined, createdAt: "" } as any}
+                    product={catalogItem ?? { ...product, coverImage: null, mediaFile: { name: "", hasFile: false }, quizMood: [], quizFormat: [], quizHook: [], quizPace: [], promoFlatBonus: 0, promoOverride: undefined, createdAt: "" } as any}
                   />
                 </LicenseGate>
               </div>

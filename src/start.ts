@@ -11,16 +11,35 @@ import { getStorage } from "~/lib/storage";
  * threaded to router.tsx via context so both the header and the injected
  * script agree on the same value.
  *
- * Vercel's public Blob store hostname below is a wildcard scoped to
- * Vercel's own Blob domain rather than this store's specific account
- * subdomain — this codebase is resold as a template, and each buyer's
- * Blob store gets a different subdomain under the same domain.
+ * img-src and media-src are 'self' (plus data: / blob:) and the sources the
+ * active storage adapter reports (getStorage().cspSources(), resolved per
+ * request). The Vercel Blob adapter uses wildcards scoped to Vercel's own Blob
+ * domain rather than this store's specific account subdomain — this codebase
+ * is resold as a template, and each buyer's Blob store gets a different
+ * subdomain under the same domain. If the adapter cannot be resolved, both
+ * fall back to the public Blob wildcard so the header is always set.
  *
  * connect-src is 'self' plus the sources the active storage adapter needs
  * for browser-direct uploads (getStorage().cspConnectOrigins(), resolved per
  * request). If the adapter cannot be resolved, it falls back to 'self' only.
  */
-const BLOB_PUBLIC_HOST = "https://*.public.blob.vercel-storage.com";
+const FALLBACK_PUBLIC_SOURCE = "https://*.public.blob.vercel-storage.com";
+
+function imgAndMediaSrc(): { img: string; media: string } {
+  try {
+    const { img, media } = getStorage().cspSources();
+    return {
+      img: ["'self'", "data:", ...img].join(" "),
+      media: ["'self'", "blob:", ...media].join(" "),
+    };
+  } catch (err) {
+    console.error("CSP: storage img/media sources unavailable, using fallback:", err);
+    return {
+      img: `'self' data: ${FALLBACK_PUBLIC_SOURCE}`,
+      media: `'self' blob: ${FALLBACK_PUBLIC_SOURCE}`,
+    };
+  }
+}
 
 function connectSrc(): string {
   try {
@@ -32,6 +51,7 @@ function connectSrc(): string {
 }
 
 function buildCsp(nonce: string): string {
+  const { img, media } = imgAndMediaSrc();
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}'`,
@@ -42,8 +62,8 @@ function buildCsp(nonce: string): string {
     // this is a documented, deliberate tradeoff rather than an oversight.
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    `img-src 'self' data: ${BLOB_PUBLIC_HOST}`,
-    `media-src 'self' blob: ${BLOB_PUBLIC_HOST}`,
+    `img-src ${img}`,
+    `media-src ${media}`,
     `connect-src ${connectSrc()}`,
     "frame-ancestors 'none'",
     "base-uri 'self'",

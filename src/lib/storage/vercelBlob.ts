@@ -1,10 +1,12 @@
-import { put, del, issueSignedToken } from "@vercel/blob";
+import { put, del, issueSignedToken, presignUrl } from "@vercel/blob";
 import { handleUploadPresigned, type HandleUploadPresignedBody } from "@vercel/blob/client";
 import { requireAdmin } from "~/lib/requireAdmin";
 import { contentTypeForKey, isGeneratedKey } from "./keys";
 import type { StorageProvider, StorageVisibility } from "./types";
 
 const UPLOAD_WINDOW_MS = 15 * 60 * 1000;
+const DEFAULT_PUBLIC_SOURCE = "https://*.public.blob.vercel-storage.com";
+const PRIVATE_SOURCE = "https://*.private.blob.vercel-storage.com";
 
 // Env vars are read inside functions only, never at module load.
 function tokenFor(visibility: StorageVisibility): string | undefined {
@@ -45,6 +47,34 @@ export const vercelBlobProvider: StorageProvider = {
   cspConnectOrigins() {
     // Trailing slash limits the source to that path prefix.
     return ["https://vercel.com/api/blob/"];
+  },
+
+  cspSources() {
+    let pub = DEFAULT_PUBLIC_SOURCE;
+    try {
+      const url = new URL(process.env.STORAGE_PUBLIC_BASE_URL ?? "");
+      if (url.protocol === "https:") pub = url.origin;
+    } catch {
+      // unset or unparsable: keep the default
+    }
+    return { img: [pub], media: [PRIVATE_SOURCE, pub] };
+  },
+
+  async signedReadUrl(key, expiresInSeconds) {
+    const validUntil = Date.now() + expiresInSeconds * 1000;
+    const token = await issueSignedToken({
+      pathname: key,
+      operations: ["get"],
+      validUntil,
+      token: process.env.BLOB_MEDIA_READ_WRITE_TOKEN,
+    });
+    const { presignedUrl } = await presignUrl(token, {
+      operation: "get",
+      pathname: key,
+      access: "private",
+      validUntil,
+    });
+    return presignedUrl;
   },
 
   async handleClientUpload(request) {
