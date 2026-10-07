@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { saveBranding, type BrandingConfig } from "~/data/branding";
-import { uploadLogoImage, deleteLogoBlob } from "~/lib/blob";
+import { uploadLogoImage, deleteLogoFile } from "~/lib/storage/serverFns";
 
 interface BrandingContextType {
   branding: BrandingConfig;
@@ -53,36 +53,36 @@ export function BrandingProvider({
 
   const updateLogo = useCallback(
     async (file: File | null) => {
-      const oldUrl = branding.logoUrl;
-      let newUrl: string | null = null;
+      const oldKey = branding.logoKey;
+      let newKey: string | null = null;
       if (file) {
         const form = new FormData();
         form.append("logo", file);
-        newUrl = await uploadLogoImage({ data: form });
+        newKey = await uploadLogoImage({ data: form });
       }
-      const deleteBlob = async (url: string, which: string) => {
+      const deleteFile = async (key: string, which: string) => {
         try {
-          await deleteLogoBlob({ data: url });
+          await deleteLogoFile({ data: key });
         } catch (err) {
-          console.error(`Failed to delete ${which} logo blob`, err);
+          console.error(`Failed to delete ${which} logo file`, err);
         }
       };
 
       let stored: BrandingConfig;
       try {
-        stored = await persist({ ...branding, logoUrl: newUrl });
+        stored = await persist({ ...branding, logoKey: newKey });
       } catch (err) {
         // Save threw: keep the old logo, discard the fresh upload.
-        if (newUrl) await deleteBlob(newUrl, "new");
+        if (newKey) await deleteFile(newKey, "new");
         throw err;
       }
 
-      if (stored.logoUrl === newUrl) {
-        // Save took effect: the old Blob is now unreferenced.
-        if (oldUrl && oldUrl !== newUrl) await deleteBlob(oldUrl, "old");
-      } else if (newUrl) {
+      if (stored.logoKey === newKey) {
+        // Save took effect: the old file is now unreferenced.
+        if (oldKey && oldKey !== newKey) await deleteFile(oldKey, "old");
+      } else if (newKey) {
         // Server returned a different logo (rejected): discard the upload.
-        await deleteBlob(newUrl, "new");
+        await deleteFile(newKey, "new");
       }
     },
     [branding, persist],

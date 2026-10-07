@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useRef, type DragEvent, type ChangeEvent } from "react";
-import { upload } from "@vercel/blob/client";
 import { type CatalogItem, type CatalogStatus } from "~/data/catalog";
 import {
   getCatalogItems,
@@ -7,7 +6,8 @@ import {
   updateCatalogStatus,
   createCatalogItem,
 } from "~/db/queries";
-import { uploadCoverImage, deleteCatalogBlobs } from "~/lib/blob";
+import { uploadCoverImage, deleteCatalogFiles, discardUnusedUpload } from "~/lib/storage/serverFns";
+import { uploadMediaFile } from "~/lib/storage/client";
 import { useLanguage } from "~/components/LanguageProvider";
 
 function formatFileSize(bytes: number): string {
@@ -40,8 +40,7 @@ export function CatalogDashboard() {
 
   const refresh = useCallback(() => {
     // DB-backed (Step 26 Phase 2, POC #2) — was a synchronous localStorage
-    // read. Note: coverImage/mediaFile will read as null for any row until
-    // Vercel Blob wiring (Phase 2, item 3) lands.
+    // read.
     getCatalogItems()
       .then(setItems)
       .catch(() => setItems([]));
@@ -109,29 +108,25 @@ export function CatalogDashboard() {
     author.trim().length > 0 &&
     parseFloat(price) > 0;
 
-  // DB-backed (Step 26 Phase 2, POC #2 follow-up), now with Vercel Blob
-  // wired in (Step 26 Phase 2, item 3): cover art uploads through the
-  // uploadCoverImage server function (public store), media files upload
-  // client-side via @vercel/blob/client's upload() against the private
-  // store (src/routes/api/blob/media-upload.ts). Both resolve to a URL
+  // DB-backed (Step 26 Phase 2, POC #2 follow-up): cover art uploads through
+  // the uploadCoverImage server function (public storage), media files upload
+  // browser-direct via uploadMediaFile() (private storage, handshake in
+  // src/routes/api/storage/media-upload.ts). Both resolve to a storage key
   // before createCatalogItem() is called.
   const handlePublish = async () => {
     if (!isFormValid) return;
+    // Keys uploaded in this attempt; discarded if the publish fails.
+    let coverKey: string | null = null;
+    let mediaKey: string | null = null;
     try {
-      let coverUrl: string | null = null;
       if (coverFile) {
         const formData = new FormData();
         formData.append("cover", coverFile);
-        coverUrl = await uploadCoverImage({ data: formData });
+        coverKey = await uploadCoverImage({ data: formData });
       }
 
-      let mediaUrl: string | null = null;
       if (mediaFile) {
-        const result = await upload(mediaFile.name, mediaFile, {
-          access: "private",
-          handleUploadUrl: "/api/blob/media-upload",
-        });
-        mediaUrl = result.url;
+        mediaKey = await uploadMediaFile(mediaFile);
       }
 
       const item = await createCatalogItem({
@@ -142,8 +137,8 @@ export function CatalogDashboard() {
           type: format === "PDF E-Book" ? "ebook" : format === "MP3 Audiobook" ? "audiobook" : "video",
           format,
           description: description.trim(),
-          coverUrl,
-          mediaUrl,
+          coverKey,
+          mediaKey,
           mediaName: mediaName.trim() || null,
         },
       });
@@ -159,6 +154,13 @@ export function CatalogDashboard() {
         }),
       );
     } catch {
+      // Best-effort: discardUnusedUpload never deletes a key a row references.
+      if (coverKey) {
+        await discardUnusedUpload({ data: { kind: "covers", key: coverKey } }).catch(() => {});
+      }
+      if (mediaKey) {
+        await discardUnusedUpload({ data: { kind: "media", key: mediaKey } }).catch(() => {});
+      }
       showToast("Publish failed — check connection and retry.");
     }
   };
@@ -167,14 +169,13 @@ export function CatalogDashboard() {
     // DB-backed (Step 26 Phase 2, POC #2) — was a synchronous localStorage
     // write. refresh() is deliberately chained after the delete resolves,
     // not fired in parallel, so the table doesn't briefly show a stale row.
-    // Blob cleanup (Step 26 Phase 2, item 3) runs first: if it fails, the
-    // catalog row is left in place rather than orphaning the Blob object.
+    // File cleanup runs first: if it fails, the catalog row is left in place
+    // rather than orphaning the stored objects. The server looks the keys up
+    // by item id; nothing key-like is sent from the browser.
     const item = items.find((i) => i.id === id);
-    const coverUrl = item?.coverImage ?? null;
-    const mediaUrl = item?.mediaFile.dataUrl ?? null;
     const cleanup =
-      coverUrl || mediaUrl
-        ? deleteCatalogBlobs({ data: { coverUrl, mediaUrl } })
+      item?.coverImage || item?.mediaFile.dataUrl
+        ? deleteCatalogFiles({ data: { itemId: id } })
         : Promise.resolve();
 
     cleanup
@@ -606,6 +607,7 @@ function CSVBulkImport({
   const [validationSummary, setValidationSummary] = useState<{
     success: number;
     errors: ValidationError[];
+    warnings: ValidationError[];
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -613,13 +615,14 @@ function CSVBulkImport({
     async (text: string) => {
       const rows = parseCSV(text);
       const errors: ValidationError[] = [];
+      const warnings: ValidationError[] = [];
       let successCount = 0;
 
       // Check headers
       const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
       if (lines.length < 2) {
         errors.push({ row: 1, message: t("admin.catalog.csvErrorHeaders") });
-        setValidationSummary({ success: 0, errors });
+        setValidationSummary({ success: 0, errors, warnings });
         return;
       }
 
@@ -630,7 +633,7 @@ function CSVBulkImport({
 
       if (!hasAllHeaders) {
         errors.push({ row: 1, message: t("admin.catalog.csvErrorHeaders") });
-        setValidationSummary({ success: 0, errors });
+        setValidationSummary({ success: 0, errors, warnings });
         return;
       }
 
@@ -680,20 +683,15 @@ function CSVBulkImport({
               continue;
           }
 
-          // Extract filename from content_url
-          const contentName = row.content_url.split("/").pop() || row.content_url || "file";
-
           // Parse optional quiz fields — split comma-separated values
           const parseQuizTags = (val: string | undefined): string[] | undefined => {
             if (!val || val.trim() === "") return undefined;
             return val.split(",").map((s) => s.trim()).filter(Boolean);
           };
 
-          // DB-backed (Step 26 Phase 2, POC #2). Unlike the manual publish
-          // form, CSV rows already carry cover_url/content_url as plain
-          // URLs (not base64 file uploads) — so this path isn't blocked on
-          // Vercel Blob wiring and can write straight to Postgres today.
-          // Awaited (not fire-and-forget) so successCount/errors and the
+          // DB-backed (Step 26 Phase 2, POC #2). CSV rows create catalog
+          // items without files: cover_url/content_url are ignored (files
+          // are attached by upload; the row gets a warning). Awaited (not fire-and-forget) so successCount/errors and the
           // final onImportComplete() reflect what actually landed in the DB.
           try {
             const item = await createCatalogItem({
@@ -704,9 +702,9 @@ function CSVBulkImport({
                 type: internalType,
                 format: internalFormat,
                 description: "",
-                coverUrl: row.cover_url || null,
-                mediaName: contentName,
-                mediaUrl: row.content_url || null,
+                coverKey: null,
+                mediaKey: null,
+                mediaName: null,
                 quizMood: parseQuizTags(row.quiz_mood),
                 quizFormat: parseQuizTags(row.quiz_format),
                 quizHook: parseQuizTags(row.quiz_hook),
@@ -720,13 +718,19 @@ function CSVBulkImport({
               }),
             );
             successCount++;
+            if (row.cover_url || row.content_url) {
+              warnings.push({
+                row: rowNum,
+                message: "cover_url/content_url ignored - attach files by upload",
+              });
+            }
           } catch {
             errors.push({ row: rowNum, message: "Failed to save to database." });
           }
         }
       }
 
-      setValidationSummary({ success: successCount, errors });
+      setValidationSummary({ success: successCount, errors, warnings });
 
       if (successCount > 0) {
         onImportComplete();
@@ -860,7 +864,7 @@ function CSVBulkImport({
       </div>
 
       {/* Validation Summary */}
-      {validationSummary && (validationSummary.success > 0 || validationSummary.errors.length > 0) && (
+      {validationSummary && (validationSummary.success > 0 || validationSummary.errors.length > 0 || validationSummary.warnings.length > 0) && (
         <div
           className="mt-4 rounded-xl border border-[var(--color-border,#334155)] bg-[var(--color-surface,#1e293b)]/30 p-4"
           role="status"
@@ -886,6 +890,20 @@ function CSVBulkImport({
                     {t("admin.catalog.csvError")
                       .replace("{row}", String(err.row))
                       .replace("{error}", err.message)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {validationSummary.warnings.length > 0 && (
+            <div className="mt-2">
+              <p className="text-sm font-medium text-amber-400">
+                {validationSummary.warnings.length} warning(s):
+              </p>
+              <ul className="mt-1 space-y-1">
+                {validationSummary.warnings.map((w, idx) => (
+                  <li key={idx} className="text-xs text-amber-300">
+                    Row {w.row}: {w.message}
                   </li>
                 ))}
               </ul>

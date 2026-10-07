@@ -204,6 +204,13 @@
       "when": 1791027126443,
       "tag": "0028_modern_speedball",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791331690648,
+      "tag": "0029_petite_millenium_guard",
+      "breakpoints": true
     }
   ]
 }

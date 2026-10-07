@@ -19,8 +19,8 @@ import { user } from "~/db/auth-schema";
  * Phase 1 of Step 26 (Backend Migration): schema only.
  * Mirrors the current CatalogItem interface in src/data/catalog.ts, with one
  * deliberate exception — coverImage and mediaFile.dataUrl (base64 data URLs)
- * become nullable `cover_url` / `media_url` text columns, to be populated from
- * Vercel Blob in Phase 2. Nothing here is wired into the running app yet.
+ * become nullable `cover_key` / `media_key` text columns holding
+ * provider-neutral storage keys (see src/lib/storage).
  *
  * `type` and `status` are plain text (not Postgres enums) on purpose: CSV
  * import is still being iterated on, and DB-level enums reject bad rows with
@@ -40,13 +40,14 @@ export const catalogItems = pgTable("catalog_items", {
   format: text("format").notNull(),
   description: text("description").notNull(),
 
-  // Replaces base64 coverImage — populated from Vercel Blob in Phase 2.
-  coverUrl: text("cover_url"),
+  // Provider-neutral storage key (e.g. "covers/<uuid>.jpg"), not a URL; the
+  // display URL is derived on the server (src/lib/storage).
+  coverKey: text("cover_key"),
 
-  // Replaces mediaFile: { name, dataUrl }. dataUrl -> media_url (Blob URL,
-  // Phase 2); name is preserved separately since it isn't base64 payload.
+  // Original media file name, kept separately from the storage key.
+  // media_key is a private storage key (e.g. "media/<uuid>.pdf").
   mediaName: text("media_name"),
-  mediaUrl: text("media_url"),
+  mediaKey: text("media_key"),
 
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
@@ -342,7 +343,7 @@ export type NewStorefrontLayoutRow = typeof storefrontLayout.$inferInsert;
  * Single global, admin-managed store branding row. Same shape as
  * promoSettings/licenseSettings — no userId, one row keyed by the fixed
  * "global" id. Replaces the old localStorage-only branding config. The logo
- * itself lives in Vercel Blob (public covers store); only its URL is stored.
+ * itself lives in public object storage; only its provider-neutral key is stored.
  */
 export const brandingSettings = pgTable("branding_settings", {
   id: text("id").primaryKey(),
@@ -351,7 +352,7 @@ export const brandingSettings = pgTable("branding_settings", {
   socialTwitter: text("social_twitter").notNull().default(""),
   socialInstagram: text("social_instagram").notNull().default(""),
   socialTiktok: text("social_tiktok").notNull().default(""),
-  logoUrl: text("logo_url"),
+  logoKey: text("logo_key"),
 });
 
 export type BrandingSettingsRow = typeof brandingSettings.$inferSelect;

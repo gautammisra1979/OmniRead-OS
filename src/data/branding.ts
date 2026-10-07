@@ -4,6 +4,8 @@ import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { brandingSettings, type BrandingSettingsRow } from "~/db/schema";
 import { requireAdmin } from "~/lib/requireAdmin";
+import { getStorage } from "~/lib/storage";
+import { isGeneratedKey } from "~/lib/storage/keys";
 
 export interface BrandingConfig {
   storeName: string;
@@ -13,7 +15,8 @@ export interface BrandingConfig {
     instagram: string;
     tiktok: string;
   };
-  logoUrl: string | null; // public Vercel Blob URL
+  logoKey: string | null; // persisted provider-neutral storage key
+  logoUrl: string | null; // read-only display URL, derived on the server from logoKey
 }
 
 export const defaultBranding: BrandingConfig = {
@@ -24,6 +27,7 @@ export const defaultBranding: BrandingConfig = {
     instagram: "",
     tiktok: "",
   },
+  logoKey: null,
   logoUrl: null,
 };
 
@@ -42,7 +46,8 @@ function rowToConfig(row: BrandingSettingsRow): BrandingConfig {
       instagram: row.socialInstagram,
       tiktok: row.socialTiktok,
     },
-    logoUrl: row.logoUrl,
+    logoKey: row.logoKey,
+    logoUrl: row.logoKey ? getStorage().publicUrl(row.logoKey) : null,
   };
 }
 
@@ -77,11 +82,7 @@ function isValidBranding(c: BrandingConfig): boolean {
   ) {
     return false;
   }
-  if (c.logoUrl !== null) {
-    if (typeof c.logoUrl !== "string" || !isHttpUrl(c.logoUrl, ["https:"])) {
-      return false;
-    }
-  }
+  if (c.logoKey !== null && !isGeneratedKey("logos", c.logoKey)) return false;
   return true;
 }
 
@@ -102,7 +103,7 @@ async function readOrCreate(): Promise<BrandingConfig> {
       socialTwitter: defaultBranding.socialLinks.twitter,
       socialInstagram: defaultBranding.socialLinks.instagram,
       socialTiktok: defaultBranding.socialLinks.tiktok,
-      logoUrl: defaultBranding.logoUrl,
+      logoKey: defaultBranding.logoKey,
     })
     .onConflictDoNothing();
   // Re-read so a concurrent first insert wins consistently.
@@ -131,11 +132,15 @@ export const saveBranding = createServerFn({ method: "POST" })
       socialTwitter: config.socialLinks.twitter,
       socialInstagram: config.socialLinks.instagram,
       socialTiktok: config.socialLinks.tiktok,
-      logoUrl: config.logoUrl,
+      logoKey: config.logoKey,
     };
     await db()
       .insert(brandingSettings)
       .values({ id: BRANDING_SETTINGS_ID, ...values })
       .onConflictDoUpdate({ target: brandingSettings.id, set: values });
-    return { ...config, storeName: values.storeName };
+    return {
+      ...config,
+      storeName: values.storeName,
+      logoUrl: values.logoKey ? getStorage().publicUrl(values.logoKey) : null,
+    };
   });

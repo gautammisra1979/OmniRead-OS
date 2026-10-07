@@ -1,5 +1,6 @@
 import { createStart, createMiddleware } from "@tanstack/react-start";
 import { setResponseHeader } from "@tanstack/react-start/server";
+import { getStorage } from "~/lib/storage";
 
 /**
  * Session 56: security headers. The policy needs a fresh per-request nonce
@@ -14,8 +15,21 @@ import { setResponseHeader } from "@tanstack/react-start/server";
  * Vercel's own Blob domain rather than this store's specific account
  * subdomain — this codebase is resold as a template, and each buyer's
  * Blob store gets a different subdomain under the same domain.
+ *
+ * connect-src is 'self' plus the sources the active storage adapter needs
+ * for browser-direct uploads (getStorage().cspConnectOrigins(), resolved per
+ * request). If the adapter cannot be resolved, it falls back to 'self' only.
  */
 const BLOB_PUBLIC_HOST = "https://*.public.blob.vercel-storage.com";
+
+function connectSrc(): string {
+  try {
+    return ["'self'", ...getStorage().cspConnectOrigins()].join(" ");
+  } catch (err) {
+    console.error("CSP: storage connect-src unavailable, using 'self' only:", err);
+    return "'self'";
+  }
+}
 
 function buildCsp(nonce: string): string {
   return [
@@ -30,7 +44,7 @@ function buildCsp(nonce: string): string {
     "font-src 'self' https://fonts.gstatic.com",
     `img-src 'self' data: ${BLOB_PUBLIC_HOST}`,
     `media-src 'self' blob: ${BLOB_PUBLIC_HOST}`,
-    "connect-src 'self'",
+    `connect-src ${connectSrc()}`,
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
