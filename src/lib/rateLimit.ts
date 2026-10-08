@@ -6,7 +6,7 @@ import { sql } from "~/db";
 const PRUNE_PROBABILITY = 0.01;
 // How old a row's window_start must be before it's eligible for pruning.
 // Must stay comfortably larger than the longest window any caller uses
-// (currently 60 seconds) — an expired row is already treated exactly like a
+// (currently 900 seconds, the per-email magic-link throttle) — an expired row is already treated exactly like a
 // missing row by checkRateLimit's upsert, so this can never affect limiter
 // behaviour, only table size.
 const PRUNE_AFTER_SECONDS = 3600;

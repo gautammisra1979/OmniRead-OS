@@ -43,7 +43,18 @@ export const translations: Record<string, Record<string, string>> = {
     "product.buyNow": "Buy Now",
     "product.buyNowError": "Checkout failed. Please try again.",
 
-    "media.noMedia": "Sample preview — upload your media to replace this placeholder."
+    "media.noMedia": "Sample preview — upload your media to replace this placeholder.",
+
+    "email.magicLink.subject": "Your sign-in link for {store}",
+    "email.magicLink.heading": "Sign in to {store}",
+    "email.magicLink.body": "Click the button below to sign in. This link works once and expires in {minutes} minutes.",
+    "email.magicLink.button": "Sign in",
+    "email.magicLink.fallback": "If the button does not work, copy and paste this link into your browser:",
+    "email.magicLink.ignore": "If you did not ask to sign in, you can ignore this email. Your account is safe.",
+
+    "auth.magicLink.title": "Finish signing in",
+    "auth.magicLink.button": "Sign in",
+    "auth.magicLink.invalid": "This sign-in link has expired or has already been used. Request a new one."
   },
   fr: {
     "nav.bestsellers": "Meilleures Ventes",

@@ -1,6 +1,8 @@
 import { betterAuth, APIError } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
-import { anonymous } from "better-auth/plugins";
+import { anonymous, magicLink } from "better-auth/plugins";
+import { createHash } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { drizzle } from "drizzle-orm/neon-http";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
@@ -8,8 +10,14 @@ import { importPKCS8, SignJWT } from "jose";
 import { sql } from "~/db";
 import * as authSchema from "~/db/auth-schema";
 import { mergeAnonymousUserData } from "~/lib/mergeAnonymousUser";
+import { checkRateLimit } from "~/lib/rateLimit";
+import { getConfiguredEmailProvider } from "~/lib/email/getProvider";
+import { sendEmail } from "~/lib/email/sendEmail";
+import { buildMagicLinkEmail } from "~/lib/email/templates/magicLink";
+import { resolveLocale } from "~/lib/i18n";
 
 const ANONYMOUS_SESSION_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const MAGIC_LINK_EXPIRES_IN_SECONDS = 15 * 60;
 
 /**
  * Admin status is fully dynamic (see requireAdmin.ts) — it's computed on
@@ -313,6 +321,34 @@ export const auth = betterAuth({
     anonymous({
       onLinkAccount: async ({ anonymousUser, newUser }) => {
         await mergeAnonymousUserData(anonymousUser.user.id, newUser.user.id);
+      },
+    }),
+    magicLink({
+      expiresIn: MAGIC_LINK_EXPIRES_IN_SECONDS,
+      disableSignUp: true,
+      storeToken: "hashed",
+      sendMagicLink: async ({ email, url, metadata }) => {
+        const to = email.trim().toLowerCase();
+        const emailHash = createHash("sha256").update(to).digest("hex");
+        if (!(await checkRateLimit(`magic-link-email:${emailHash}`, 900, 3))) return;
+        const [row] = await drizzle(sql())
+          .select({ isAnonymous: authSchema.user.isAnonymous })
+          .from(authSchema.user)
+          .where(eq(authSchema.user.email, to))
+          .limit(1);
+        if (!row || row.isAnonymous || isReservedAdminEmail(to)) return;
+        const landing = new URL(url);
+        landing.pathname = "/auth/magic-link";
+        const link = landing.toString();
+        const { fromName } = await getConfiguredEmailProvider();
+        const { subject, html, text } = buildMagicLinkEmail({
+          locale: resolveLocale((metadata as { locale?: unknown } | undefined)?.locale),
+          storeName: fromName,
+          link,
+          minutes: MAGIC_LINK_EXPIRES_IN_SECONDS / 60,
+        });
+        await sendEmail({ notificationType: "magic-link", message: { to, from: "", subject, html, text } });
+        if (process.env.NODE_ENV !== "production") console.log("[magic-link] dev link:", link);
       },
     }),
     tanstackStartCookies(),
