@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import {
@@ -15,6 +16,8 @@ import {
   challengeSettings,
   challengeReviews,
   notifyRequests,
+  affiliateLedger,
+  affiliateClickEvents,
 } from "~/db/schema";
 
 /**
@@ -26,7 +29,13 @@ import {
  * reassign to `realUserId` is deleted automatically along with the
  * anonymous user. That cascade is what implements "discard the anonymous
  * row" for the conflict cases below: we simply don't touch those rows, and
- * they disappear on their own. `mediaProgress`, `challengeProgress`,
+ * they disappear on their own. Handled tables: cartItems, cartState,
+ * wallet, loyaltyLedger, downloads, refundClaims, affiliateReferrals,
+ * affiliateProfiles, affiliateLedger (buyerUserId), affiliateClickEvents
+ * (visitorUserId), mediaProgress, challengeProgress, challengeSettings,
+ * challengeReviews, notifyRequests. RULE: every table with a cascading FK
+ * to `user.id` must be handled here or explicitly listed as intentionally
+ * discarded. `mediaProgress`, `challengeProgress`,
  * `challengeReviews` and `notifyRequests` are composite-key tables (userId plus a second column),
  * so their conflict checks are done per-row rather than once per user.
  * `challengeSettings` is one row per user, like `cartState`.
@@ -107,7 +116,7 @@ export async function mergeAnonymousUserData(
         database.select().from(notifyRequests).where(eq(notifyRequests.userId, realUserId)),
       ]);
 
-    const conditionalOps: (ReturnType<typeof database.update> | ReturnType<typeof database.delete>)[] = [];
+    const conditionalOps: BatchItem<"pg">[] = [];
 
     // cartState: userId is the primary key, one row per user. If the real
     // user already has a row, keep it as-is and let the anonymous row
@@ -293,7 +302,7 @@ export async function mergeAnonymousUserData(
       }
     }
 
-    const ops = [
+    const [firstOp, ...otherOps]: BatchItem<"pg">[] = [
       // cartItems, loyaltyLedger, downloads, refundClaims: no conflict
       // handling needed — each row has its own id, so reassigning is a
       // plain move regardless of what the real user already has.
@@ -301,6 +310,18 @@ export async function mergeAnonymousUserData(
       database.update(loyaltyLedger).set({ userId: realUserId }).where(eq(loyaltyLedger.userId, anonUserId)),
       database.update(downloads).set({ userId: realUserId }).where(eq(downloads.userId, anonUserId)),
       database.update(refundClaims).set({ userId: realUserId }).where(eq(refundClaims.userId, anonUserId)),
+      // affiliateLedger: a guest buyer's pending affiliate commission row
+      // (money owed to the affiliate) — must follow the buyer to the real
+      // account instead of cascade-deleting.
+      database
+        .update(affiliateLedger)
+        .set({ buyerUserId: realUserId })
+        .where(eq(affiliateLedger.buyerUserId, anonUserId)),
+      // affiliateClickEvents: the guest's click/attribution history.
+      database
+        .update(affiliateClickEvents)
+        .set({ visitorUserId: realUserId })
+        .where(eq(affiliateClickEvents.visitorUserId, anonUserId)),
       ...conditionalOps,
     ];
 
@@ -309,10 +330,9 @@ export async function mergeAnonymousUserData(
     // alternative: Neon runs the whole array as one real Postgres
     // transaction over HTTP, all-or-nothing. That's what guarantees a
     // partial failure here doesn't leave some tables merged and others
-    // not. The cast below is just working around `.batch()`'s
-    // non-empty-tuple type signature for a dynamically-built array — `ops`
-    // always has at least 4 elements (the unconditional updates above).
-    await database.batch(ops as unknown as [(typeof ops)[number], ...(typeof ops)[number][]]);
+    // not. `.batch()` wants a non-empty tuple, so the first
+    // unconditional op is split out and the rest spread back in.
+    await database.batch([firstOp, ...otherOps]);
   } catch (error) {
     console.error(
       `[mergeAnonymousUserData] Merge failed for anonymous user ${anonUserId} -> real user ${realUserId}. ` +
