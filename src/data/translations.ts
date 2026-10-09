@@ -51,6 +51,9 @@ export const translations: Record<string, Record<string, string>> = {
     "email.magicLink.button": "Sign in",
     "email.magicLink.fallback": "If the button does not work, copy and paste this link into your browser:",
     "email.magicLink.ignore": "If you did not ask to sign in, you can ignore this email. Your account is safe.",
+    "email.test.subject": "Test email from {store}",
+    "email.test.heading": "Test email",
+    "email.test.body": "This is a test email from {store}. If you are reading it, your transactional email provider ({provider}) is configured correctly.",
 
     "auth.magicLink.title": "Finish signing in",
     "auth.magicLink.button": "Sign in",
@@ -96,7 +99,20 @@ export const translations: Record<string, Record<string, string>> = {
     "catalog.statusLabel": "Statut",
 
     "product.buyNow": "Acheter maintenant",
-    "product.buyNowError": "Échec du paiement. Veuillez réessayer."
+    "product.buyNowError": "Échec du paiement. Veuillez réessayer.",
+
+    "email.magicLink.subject": "Votre lien de connexion pour {store}",
+    "email.magicLink.heading": "Connectez-vous à {store}",
+    "email.magicLink.body": "Cliquez sur le bouton ci-dessous pour vous connecter. Ce lien ne fonctionne qu'une seule fois et expire dans {minutes} minutes.",
+    "email.magicLink.button": "Se connecter",
+    "email.magicLink.fallback": "Si le bouton ne fonctionne pas, copiez et collez ce lien dans votre navigateur :",
+    "email.magicLink.ignore": "Si vous n'avez pas demandé à vous connecter, vous pouvez ignorer cet e-mail. Votre compte est en sécurité.",
+    "auth.magicLink.title": "Terminer la connexion",
+    "auth.magicLink.button": "Se connecter",
+    "auth.magicLink.invalid": "Ce lien de connexion a expiré ou a déjà été utilisé. Demandez-en un nouveau.",
+    "email.test.subject": "E-mail de test de {store}",
+    "email.test.heading": "E-mail de test",
+    "email.test.body": "Ceci est un e-mail de test envoyé par {store}. Si vous le lisez, votre fournisseur d'e-mails transactionnels ({provider}) est correctement configuré."
   },
   es: {
     "nav.bestsellers": "Los Más Vendidos",
@@ -138,6 +154,19 @@ export const translations: Record<string, Record<string, string>> = {
     "catalog.statusLabel": "Estado",
 
     "product.buyNow": "Comprar ahora",
-    "product.buyNowError": "Error en el pago. Inténtalo de nuevo."
+    "product.buyNowError": "Error en el pago. Inténtalo de nuevo.",
+
+    "email.magicLink.subject": "Tu enlace de inicio de sesión para {store}",
+    "email.magicLink.heading": "Inicia sesión en {store}",
+    "email.magicLink.body": "Haz clic en el botón de abajo para iniciar sesión. Este enlace solo funciona una vez y caduca en {minutes} minutos.",
+    "email.magicLink.button": "Iniciar sesión",
+    "email.magicLink.fallback": "Si el botón no funciona, copia y pega este enlace en tu navegador:",
+    "email.magicLink.ignore": "Si no solicitaste iniciar sesión, puedes ignorar este correo. Tu cuenta está segura.",
+    "auth.magicLink.title": "Termina de iniciar sesión",
+    "auth.magicLink.button": "Iniciar sesión",
+    "auth.magicLink.invalid": "Este enlace de inicio de sesión ha caducado o ya se ha usado. Solicita uno nuevo.",
+    "email.test.subject": "Correo de prueba de {store}",
+    "email.test.heading": "Correo de prueba",
+    "email.test.body": "Este es un correo de prueba de {store}. Si lo estás leyendo, tu proveedor de correo transaccional ({provider}) está configurado correctamente."
   }
 };

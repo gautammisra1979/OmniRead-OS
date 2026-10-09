@@ -3,18 +3,21 @@ import {
   getEmailSettings,
   saveEmailSettings,
   sendTestEmail,
-  getVerifiedProviders,
   type EmailSettingsPublic,
 } from "~/data/emailSettings";
+import { useLanguage } from "~/components/LanguageProvider";
 import type { EmailProviderId } from "~/lib/email/types";
 
 const PROVIDER_LABELS: Record<EmailProviderId, string> = {
   resend: "Resend",
   postmark: "Postmark",
   ses: "Amazon SES",
+  sendgrid: "SendGrid",
+  azure: "Azure Communication Services",
 };
 
 export function EmailSettings() {
+  const { locale } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<EmailSettingsPublic | null>(null);
 
@@ -26,6 +29,9 @@ export function EmailSettings() {
   const [sesAccessKeyId, setSesAccessKeyId] = useState("");
   const [sesSecretAccessKey, setSesSecretAccessKey] = useState("");
   const [sesRegion, setSesRegion] = useState("us-east-1");
+  const [sendgridApiKey, setSendgridApiKey] = useState("");
+  const [sendgridRegion, setSendgridRegion] = useState<"global" | "eu">("global");
+  const [azureConnectionString, setAzureConnectionString] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -33,8 +39,6 @@ export function EmailSettings() {
   const [testRecipient, setTestRecipient] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  const verifiedProviders = getVerifiedProviders();
 
   const refresh = useCallback(async () => {
     const row = await getEmailSettings();
@@ -44,6 +48,7 @@ export function EmailSettings() {
     setFromAddress(row.fromAddress);
     setSesAccessKeyId(row.ses.accessKeyId);
     setSesRegion(row.ses.region);
+    setSendgridRegion(row.sendgrid.region);
   }, []);
 
   useEffect(() => {
@@ -63,10 +68,15 @@ export function EmailSettings() {
         sesAccessKeyId: sesAccessKeyId || undefined,
         sesSecretAccessKey: sesSecretAccessKey || undefined,
         sesRegion: sesRegion || undefined,
+        sendgridApiKey: sendgridApiKey || undefined,
+        sendgridRegion,
+        azureConnectionString: azureConnectionString || undefined,
       });
       setResendApiKey("");
       setPostmarkApiKey("");
       setSesSecretAccessKey("");
+      setSendgridApiKey("");
+      setAzureConnectionString("");
       await refresh();
       setSaveMsg({ type: "success", text: "Email settings saved." });
     } catch {
@@ -75,14 +85,14 @@ export function EmailSettings() {
       setSaving(false);
       setTimeout(() => setSaveMsg(null), 3000);
     }
-  }, [provider, fromName, fromAddress, resendApiKey, postmarkApiKey, sesAccessKeyId, sesSecretAccessKey, sesRegion, refresh]);
+  }, [provider, fromName, fromAddress, resendApiKey, postmarkApiKey, sesAccessKeyId, sesSecretAccessKey, sesRegion, sendgridApiKey, sendgridRegion, azureConnectionString, refresh]);
 
   const handleTestSend = useCallback(async () => {
     if (!testRecipient) return;
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await sendTestEmail(testRecipient);
+      const result = await sendTestEmail({ recipient: testRecipient, locale });
       setTestResult(
         result.success
           ? { type: "success", text: `Test email sent to ${testRecipient}.` }
@@ -93,7 +103,7 @@ export function EmailSettings() {
     } finally {
       setTesting(false);
     }
-  }, [testRecipient]);
+  }, [testRecipient, locale]);
 
   if (loading || !settings) return null;
 
@@ -142,9 +152,9 @@ export function EmailSettings() {
               className="w-full rounded-lg border px-3 py-2 text-xs"
               style={inputStyle}
             >
-              {verifiedProviders.map((p) => (
+              {settings.selectableProviders.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.label}
+                  {p.label}{p.verified ? "" : " (unverified)"}
                 </option>
               ))}
             </select>
@@ -238,6 +248,62 @@ export function EmailSettings() {
                 placeholder="us-east-1"
               />
             </div>
+          </div>
+        )}
+
+        {provider === "sendgrid" && (
+          <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+                SendGrid API key
+              </label>
+              <input
+                type="password"
+                value={sendgridApiKey}
+                onChange={(e) => setSendgridApiKey(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 text-xs"
+                style={inputStyle}
+                placeholder={settings.sendgrid.hasApiKey ? "•••••••••••••••• (leave blank to keep)" : "Enter API key"}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+                Region
+              </label>
+              <select
+                value={sendgridRegion}
+                onChange={(e) => setSendgridRegion(e.target.value === "eu" ? "eu" : "global")}
+                className="w-full rounded-lg border px-3 py-2 text-xs"
+                style={inputStyle}
+              >
+                <option value="global">Global</option>
+                <option value="eu">EU</option>
+              </select>
+              <p className="mt-1 text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+                EU requires an EU-pinned SendGrid account.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {provider === "azure" && (
+          <div className="mb-4">
+            <label className="mb-1 block text-xs font-medium" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+              Connection string
+            </label>
+            <input
+              type="password"
+              value={azureConnectionString}
+              onChange={(e) => setAzureConnectionString(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2 text-xs"
+              style={inputStyle}
+              placeholder={
+                settings.azure.hasConnectionString ? "•••••••••••••••• (leave blank to keep)" : "Enter connection string"
+              }
+            />
+            <p className="mt-1 text-xs" style={{ color: "var(--color-text-muted,#94a3b8)" }}>
+              Only the From address is used; the display name is set on the sender in Azure.
+            </p>
           </div>
         )}
 

@@ -6,6 +6,8 @@ import { decryptRecoveryPhrase } from "~/lib/recoveryCrypto";
 import { ResendProvider } from "./resend";
 import { PostmarkProvider } from "./postmark";
 import { SesProvider } from "./ses";
+import { SendGridProvider } from "./sendgrid";
+import { AzureEmailProvider } from "./azure";
 import type { EmailProvider, EmailProviderId } from "./types";
 
 const EMAIL_SETTINGS_ID = "global";
@@ -49,6 +51,17 @@ export async function getConfiguredEmailProvider(): Promise<ConfiguredEmailProvi
         fromName,
         fromAddress,
       };
+    }
+    case "sendgrid": {
+      const apiKey = row?.sendgridApiKeyEncrypted ? await decryptRecoveryPhrase(row.sendgridApiKeyEncrypted) : null;
+      const region = row?.sendgridRegion === "eu" ? "eu" : "global";
+      return { provider: new SendGridProvider(apiKey ?? "", region), providerId, fromName, fromAddress };
+    }
+    case "azure": {
+      const connectionString = row?.azureConnectionStringEncrypted
+        ? await decryptRecoveryPhrase(row.azureConnectionStringEncrypted)
+        : null;
+      return { provider: new AzureEmailProvider(connectionString ?? ""), providerId, fromName, fromAddress };
     }
     case "resend":
     default: {

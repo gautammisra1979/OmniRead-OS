@@ -24,4 +24,4 @@ export interface EmailProvider {
   send(message: EmailMessage): Promise<EmailSendResult>;
 }
 
-export type EmailProviderId = "resend" | "postmark" | "ses";
+export type EmailProviderId = "resend" | "postmark" | "ses" | "sendgrid" | "azure";

@@ -528,7 +528,7 @@ export type NewAffiliateSettingsRow = typeof affiliateSettings.$inferInsert;
  */
 export const emailSettings = pgTable("email_settings", {
   id: text("id").primaryKey(), // fixed "global" row
-  provider: text("provider").notNull().default("resend"), // "resend" | "postmark" | "ses"
+  provider: text("provider").notNull().default("resend"), // "resend" | "postmark" | "ses" | "sendgrid" | "azure"
   fromName: text("from_name").notNull().default(""),
   fromAddress: text("from_address").notNull().default(""),
   resendApiKeyEncrypted: text("resend_api_key_encrypted"),
@@ -536,6 +536,9 @@ export const emailSettings = pgTable("email_settings", {
   sesAccessKeyId: text("ses_access_key_id"),
   sesSecretAccessKeyEncrypted: text("ses_secret_access_key_encrypted"),
   sesRegion: text("ses_region").notNull().default("us-east-1"),
+  sendgridApiKeyEncrypted: text("sendgrid_api_key_encrypted"),
+  sendgridRegion: text("sendgrid_region").notNull().default("global"), // "global" | "eu"
+  azureConnectionStringEncrypted: text("azure_connection_string_encrypted"),
 });
 export type EmailSettingsRow = typeof emailSettings.$inferSelect;
 export type NewEmailSettingsRow = typeof emailSettings.$inferInsert;

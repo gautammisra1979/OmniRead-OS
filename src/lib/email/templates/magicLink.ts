@@ -1,20 +1,12 @@
 import type { Locale } from "~/data/translations";
 import { translate } from "~/lib/i18n";
+import { escapeHtml } from "./escapeHtml";
 
 export interface MagicLinkEmailParams {
   locale: Locale;
   storeName: string;
   link: string;
   minutes: number;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 function fallbackStoreName(): string {
