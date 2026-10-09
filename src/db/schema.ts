@@ -112,16 +112,16 @@ export const cartItems = pgTable("cart_items", {
   format: text("format").notNull(),
   coverImage: text("cover_image"),
   quantity: integer("quantity").notNull().default(1),
-  addedAt: timestamp("added_at").notNull().defaultNow(),
+  addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const cartState = pgTable("cart_state", {
   userId: text("user_id")
     .primaryKey()
     .references(() => user.id, { onDelete: "cascade" }),
-  lastActivity: timestamp("last_activity").notNull().defaultNow(),
+  lastActivity: timestamp("last_activity", { withTimezone: true }).notNull().defaultNow(),
   isAbandoned: boolean("is_abandoned").notNull().default(false),
-  abandonedAt: timestamp("abandoned_at"),
+  abandonedAt: timestamp("abandoned_at", { withTimezone: true }),
   recoveryCoupon: text("recovery_coupon"),
   recoveryDiscount: integer("recovery_discount"),
   recoveryOffered: boolean("recovery_offered").notNull().default(false),
@@ -194,7 +194,7 @@ export const loyaltyLedger = pgTable("loyalty_ledger", {
   points: integer("points").notNull(),
   description: text("description").notNull(),
   productId: text("product_id"),
-  timestamp: timestamp("timestamp").notNull().defaultNow(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type LoyaltyLedgerRow = typeof loyaltyLedger.$inferSelect;
@@ -212,8 +212,8 @@ export const downloads = pgTable(
     productAuthor: text("product_author").notNull(),
     productType: text("product_type").notNull(), // ebook | audiobook | video
     price: numeric("price", { precision: 10, scale: 2 }).notNull(),
-    purchasedAt: timestamp("purchased_at").notNull(),
-    lastDownloadedAt: timestamp("last_downloaded_at"),
+    purchasedAt: timestamp("purchased_at", { withTimezone: true }).notNull(),
+    lastDownloadedAt: timestamp("last_downloaded_at", { withTimezone: true }),
     downloadCount: integer("download_count").notNull().default(0),
     status: text("status").notNull().default("active"), // active | refunded
     sessionId: text("session_id"),
@@ -597,7 +597,7 @@ export const mediaProgress = pgTable(
     productId: text("product_id").notNull(),
     positionSeconds: doublePrecision("position_seconds").notNull(),
     duration: doublePrecision("duration").notNull(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.userId, table.productId] }),
@@ -625,7 +625,7 @@ export const challengeProgress = pgTable(
     totalUnits: doublePrecision("total_units").notNull(),
     completedUnits: doublePrecision("completed_units").notNull(),
     day: integer("day").notNull(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.userId, table.productId] }),
@@ -644,9 +644,9 @@ export const challengeSettings = pgTable("challenge_settings", {
     .primaryKey()
     .references(() => user.id, { onDelete: "cascade" }),
   dailyTarget: doublePrecision("daily_target"),
-  dayStart: timestamp("day_start"),
+  dayStart: timestamp("day_start", { withTimezone: true }),
   reminderIntervalDays: integer("reminder_interval_days").notNull().default(1),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type ChallengeSettingsRow = typeof challengeSettings.$inferSelect;
@@ -672,8 +672,8 @@ export const challengeReviews = pgTable(
     pacingEval: text("pacing_eval").notNull(),
     isPrivate: boolean("is_private").notNull(),
     hasSpoiler: boolean("has_spoiler").notNull(),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     userProductUnique: unique("challenge_reviews_user_product_unique").on(
