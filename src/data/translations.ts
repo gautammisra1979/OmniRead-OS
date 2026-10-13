@@ -54,6 +54,7 @@ export const translations: Record<string, Record<string, string>> = {
     "email.test.subject": "Test email from {store}",
     "email.test.heading": "Test email",
     "email.test.body": "This is a test email from {store}. If you are reading it, your transactional email provider ({provider}) is configured correctly.",
+    "storage.refresh": "Refresh",
 
     "auth.magicLink.title": "Finish signing in",
     "auth.magicLink.button": "Sign in",
@@ -112,7 +113,8 @@ export const translations: Record<string, Record<string, string>> = {
     "auth.magicLink.invalid": "Ce lien de connexion a expiré ou a déjà été utilisé. Demandez-en un nouveau.",
     "email.test.subject": "E-mail de test de {store}",
     "email.test.heading": "E-mail de test",
-    "email.test.body": "Ceci est un e-mail de test envoyé par {store}. Si vous le lisez, votre fournisseur d'e-mails transactionnels ({provider}) est correctement configuré."
+    "email.test.body": "Ceci est un e-mail de test envoyé par {store}. Si vous le lisez, votre fournisseur d'e-mails transactionnels ({provider}) est correctement configuré.",
+    "storage.refresh": "Actualiser"
   },
   es: {
     "nav.bestsellers": "Los Más Vendidos",
@@ -167,6 +169,7 @@ export const translations: Record<string, Record<string, string>> = {
     "auth.magicLink.invalid": "Este enlace de inicio de sesión ha caducado o ya se ha usado. Solicita uno nuevo.",
     "email.test.subject": "Correo de prueba de {store}",
     "email.test.heading": "Correo de prueba",
-    "email.test.body": "Este es un correo de prueba de {store}. Si lo estás leyendo, tu proveedor de correo transaccional ({provider}) está configurado correctamente."
+    "email.test.body": "Este es un correo de prueba de {store}. Si lo estás leyendo, tu proveedor de correo transaccional ({provider}) está configurado correctamente.",
+    "storage.refresh": "Actualizar"
   }
 };

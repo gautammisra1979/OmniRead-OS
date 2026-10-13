@@ -75,39 +75,40 @@ export function ComingSoonSection() {
     };
   }, []);
 
-  // Re-render when storage changes, and poll a cheap change-signal every 2
-  // seconds for same-tab updates — only bump refreshKey when the signature
-  // actually differs, so an unchanged catalog doesn't trigger the full
-  // getAllProducts() chain below.
+  // Check a cheap change-signal when the tab becomes visible again — only
+  // bump refreshKey when the signature actually differs, so an unchanged
+  // catalog doesn't trigger the full getAllProducts() chain below.
   useEffect(() => {
     if (typeof window === "undefined") return;
     let cancelled = false;
     let lastSignature: CatalogSignature | null = null;
 
-    const checkSignature = async () => {
+    const checkSignature = async (baselineOnly: boolean) => {
       try {
         const signature = await getCatalogSignature();
         if (cancelled) return;
-        if (
-          !lastSignature ||
-          signature.count !== lastSignature.count ||
-          signature.maxUpdatedAt !== lastSignature.maxUpdatedAt
-        ) {
-          lastSignature = signature;
-          setRefreshKey((k) => k + 1);
-        }
+        const changed =
+          !baselineOnly &&
+          lastSignature !== null &&
+          (signature.count !== lastSignature.count ||
+            signature.maxUpdatedAt !== lastSignature.maxUpdatedAt);
+        lastSignature = signature;
+        if (changed) setRefreshKey((k) => k + 1);
       } catch {
-        // Transient poll failure — try again next tick.
+        // Transient failure — the next visibility change will retry.
       }
     };
 
-    const handleStorage = () => setRefreshKey((k) => k + 1);
-    window.addEventListener("storage", handleStorage);
-    const interval = setInterval(checkSignature, 2000);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void checkSignature(false);
+    };
+
+    // Baseline only: the catalog-fetch effect already runs on mount.
+    void checkSignature(true);
+    document.addEventListener("visibilitychange", handleVisibility);
     return () => {
       cancelled = true;
-      window.removeEventListener("storage", handleStorage);
-      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, []);
 

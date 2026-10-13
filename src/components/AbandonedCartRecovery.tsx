@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useLanguage } from "~/components/LanguageProvider";
 import {
   checkCartAbandoned,
@@ -6,6 +6,9 @@ import {
   dismissRecovery,
   type CartState,
 } from "~/data/cart";
+
+// Must match IDLE_THRESHOLD_MS in ~/data/cart.
+const ABANDON_THRESHOLD_MS = 30 * 60 * 1000;
 
 interface AbandonedCartRecoveryProps {
   onOpenCart: () => void;
@@ -16,32 +19,64 @@ export function AbandonedCartRecovery({ onOpenCart }: AbandonedCartRecoveryProps
   const [cart, setCart] = useState<CartState | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const { t } = useLanguage();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Check for abandoned cart on mount and periodically
+  // Check for abandoned cart on mount, then schedule a single one-shot check
+  // for when the cart would cross the idle threshold (no polling).
   useEffect(() => {
     if (typeof window === "undefined") return;
     let cancelled = false;
 
+    const clearPending = () => {
+      if (timeoutRef.current !== null) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
+
     const check = async () => {
+      clearPending();
       if (dismissed) return;
       const checkedCart = await checkCartAbandoned();
       if (cancelled) return;
       if (checkedCart.isAbandoned && checkedCart.recoveryOffered && !checkedCart.recoveryRedeemed) {
         setCart(checkedCart);
         setShow(true);
+        return;
+      }
+      if (
+        checkedCart.items.length > 0 &&
+        !checkedCart.isAbandoned &&
+        !checkedCart.recoveryRedeemed &&
+        document.visibilityState === "visible"
+      ) {
+        const delay =
+          Math.max(
+            0,
+            new Date(checkedCart.lastActivity).getTime() + ABANDON_THRESHOLD_MS - Date.now(),
+          ) + 5000;
+        clearPending();
+        timeoutRef.current = setTimeout(check, delay);
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void check();
+      } else {
+        clearPending();
       }
     };
 
     // Check on mount
     const timer = setTimeout(check, 1000);
-
-    // Also check every 60 seconds
-    const interval = setInterval(check, 60000);
+    document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
       cancelled = true;
       clearTimeout(timer);
-      clearInterval(interval);
+      clearPending();
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [dismissed]);
 

@@ -23,8 +23,11 @@ export function StorageConsole() {
 
   useEffect(() => {
     refreshUsage();
-    const interval = setInterval(refreshUsage, 3000);
-    return () => clearInterval(interval);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") refreshUsage();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, [refreshUsage]);
 
   const limit = getLocalStorageLimit();
@@ -62,7 +65,17 @@ export function StorageConsole() {
       {/* Usage bar */}
       <div className="mb-3">
         <div className="flex items-center justify-between text-xs mb-1.5">
-          <span style={{ color: "var(--color-text-muted, #94a3b8)" }}>{usageLabel}</span>
+          <span className="flex items-center gap-2" style={{ color: "var(--color-text-muted, #94a3b8)" }}>
+            {usageLabel}
+            <button
+              type="button"
+              onClick={refreshUsage}
+              className="rounded border px-2 py-0.5 text-[10px] font-medium transition-colors hover:opacity-80"
+              style={{ borderColor: "var(--color-border, #334155)" }}
+            >
+              {t("storage.refresh")}
+            </button>
+          </span>
           <span className="font-bold" style={{ color: barColor }}>
             {usagePct}%
           </span>
