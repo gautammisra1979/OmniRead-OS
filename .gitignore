@@ -18,3 +18,5 @@ node_modules
 src/routeTree.gen.ts
 .vercel
 .env*
+.dev.vars*
+.wrangler/

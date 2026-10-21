@@ -8,3 +8,4 @@ Tracking starts at Session 24 - everything before this point lives in the Sessio
 
 * Session 88: Bumped deploy-version to v1.0.14 (consolidates the Sessions 81-86 pending list) after applying migrations 0029-0031 to the Neon production branch; no code changes.
 * Session 89: Removed timer-based polling (catalog change-signal checked on load and tab visibility; StorageConsole refresh button; one-shot abandoned-cart check at the 30-minute mark); storage.refresh added in en/fr/es.
+* Session 96: cf-spike branch only (throwaway, not for merge) - Cloudflare Workers hello-world build: @cloudflare/vite-plugin replaces the Nitro Vercel preset in vite.config.ts, wrangler.jsonc added, preview/deploy scripts, .dev.vars and .wrangler ignored.

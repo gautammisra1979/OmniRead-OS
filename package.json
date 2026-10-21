@@ -9,7 +9,9 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "preview": "vite preview",
+    "deploy": "wrangler deploy"
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.1140.0",
@@ -31,6 +33,7 @@
     "stripe": "^22.5.0"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.64.0",
     "@tailwindcss/vite": "^4.1.18",
     "@types/node": "^25.3.0",
     "@types/react": "^19.2.13",
@@ -44,6 +47,7 @@
     "tsx": "^4.23.8",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
-    "vite-tsconfig-paths": "^6.0.5"
+    "vite-tsconfig-paths": "^6.0.5",
+    "wrangler": "^4.151.3"
   }
 }
