@@ -1,5 +1,6 @@
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { sql } from "~/db";
+import { getClientIpHeader } from "~/lib/appEnv";
 
 // Chance, on any given checkRateLimit call, that this call also prunes
 // expired rows — not a security-sensitive choice, plain Math.random() is fine.
@@ -12,17 +13,18 @@ const PRUNE_PROBABILITY = 0.01;
 const PRUNE_AFTER_SECONDS = 3600;
 
 /**
- * IP extraction matches Better Auth's own default (@better-auth/core's
- * getIp / DEFAULT_IP_HEADERS): x-forwarded-for is the only header checked,
- * with the leftmost (original client) entry taken from the comma-separated
- * chain. This project doesn't configure advanced.ipAddress.trustedProxies
- * on the Better Auth instance (auth.ts), so this mirrors the same
- * single-header convention rather than Better Auth's stricter
- * multi-hop-without-trustedProxies rejection — good enough for keying a
- * fixed-window counter, not a security boundary in itself.
+ * IP extraction reads the header named by getClientIpHeader() (CLIENT_IP_HEADER,
+ * default x-forwarded-for) — the same header Better Auth's limiter uses (auth.ts
+ * sets advanced.ipAddress.ipAddressHeaders to it). The leftmost (original
+ * client) entry is taken from a comma-separated chain, which is harmless for
+ * single-value headers like cf-connecting-ip. This project doesn't configure
+ * advanced.ipAddress.trustedProxies on the Better Auth instance, so this
+ * mirrors the same single-header convention rather than Better Auth's
+ * stricter multi-hop-without-trustedProxies rejection — good enough for keying
+ * a fixed-window counter, not a security boundary in itself.
  */
 function getClientIp(): string {
-  const forwardedFor = getRequestHeaders().get("x-forwarded-for");
+  const forwardedFor = getRequestHeaders().get(getClientIpHeader());
   if (forwardedFor) {
     const first = forwardedFor.split(",")[0]?.trim();
     if (first) return first;

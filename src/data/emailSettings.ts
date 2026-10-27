@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { emailSettings, type EmailSettingsRow } from "~/db/schema";
 import { requireAdmin } from "~/lib/requireAdmin";
+import { allowUnverifiedEmailProviders } from "~/lib/appEnv";
 import { encryptRecoveryPhrase } from "~/lib/recoveryCrypto";
 import { getConfiguredEmailProvider } from "~/lib/email/getProvider";
 import { EMAIL_PROVIDER_REGISTRY } from "~/lib/email/registry";
@@ -72,13 +73,14 @@ function db() {
 }
 
 /**
- * Production offers verified providers only; Dev/Preview offer all. The saved
- * provider is always included so the dropdown never misrepresents it.
+ * Restricted to verified providers unless APP_ENV is development or preview
+ * (including when APP_ENV is unset); those offer all. The saved provider is
+ * always included so the dropdown never misrepresents it.
  */
 function computeSelectableProviders(saved: EmailProviderId): EmailSettingsPublic["selectableProviders"] {
-  const isProduction = process.env.VERCEL_ENV === "production";
+  const allowUnverified = allowUnverifiedEmailProviders();
   return (Object.keys(EMAIL_PROVIDER_REGISTRY) as EmailProviderId[])
-    .filter((id) => !isProduction || EMAIL_PROVIDER_REGISTRY[id].verified || id === saved)
+    .filter((id) => allowUnverified || EMAIL_PROVIDER_REGISTRY[id].verified || id === saved)
     .map((id) => ({ id, label: EMAIL_PROVIDER_REGISTRY[id].label, verified: EMAIL_PROVIDER_REGISTRY[id].verified }));
 }
 
@@ -143,7 +145,7 @@ const dbSaveEmailSettings = createServerFn({ method: "POST" })
     if (input.sendgridRegion !== undefined && input.sendgridRegion !== "global" && input.sendgridRegion !== "eu") {
       throw new Error('SendGrid region must be "global" or "eu".');
     }
-    if (process.env.VERCEL_ENV === "production" && !EMAIL_PROVIDER_REGISTRY[input.provider].verified) {
+    if (!allowUnverifiedEmailProviders() && !EMAIL_PROVIDER_REGISTRY[input.provider].verified) {
       throw new Error(
         `"${EMAIL_PROVIDER_REGISTRY[input.provider]?.label ?? input.provider}" has not been verified yet and cannot be selected as the active email provider.`,
       );
@@ -194,7 +196,7 @@ const dbSaveEmailSettings = createServerFn({ method: "POST" })
  * Explicit human-triggered verification send — this is the store owner's
  * only signal that DNS/API-key/credentials are actually working, so it
  * calls the adapter directly (never sendEmail()'s wrapper) and always
- * attempts real delivery regardless of VERCEL_ENV.
+ * attempts real delivery regardless of APP_ENV.
  */
 const dbSendTestEmail = createServerFn({ method: "POST" })
   .validator((input: TestEmailInput) => input)

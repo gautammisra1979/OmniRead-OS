@@ -6,8 +6,9 @@ import type { EmailProviderId } from "./types";
  * type-check cleanly, but stay `verified: false` until each has one real
  * verified test send (see Session 60 Task 5's explicit out-of-scope note).
  * Unverified providers are selectable and saveable on Dev and Preview only
- * (VERCEL_ENV !== "production") so they can be live-tested; on Production only
- * verified providers can be selected or saved, except that the currently saved
+ * (APP_ENV is development or preview) so they can be live-tested; on Production,
+ * or when APP_ENV is unset, only verified providers can be selected or saved,
+ * except that the currently saved
  * provider always stays listed (src/data/emailSettings.ts computes
  * `selectableProviders` server-side). Flipping a provider to `verified: true`
  * is the entire follow-up task once that real send is confirmed.

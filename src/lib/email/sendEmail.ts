@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql } from "~/db";
 import { emailSendFailures } from "~/db/schema";
+import { canSendRealEmail } from "~/lib/appEnv";
 import { getConfiguredEmailProvider } from "./getProvider";
 import type { EmailMessage, EmailSendResult } from "./types";
 
@@ -31,9 +32,9 @@ export async function sendEmail({ notificationType, message }: SendEmailParams):
   const from = message.from || (fromName ? `${fromName} <${fromAddress}>` : fromAddress);
   const resolvedMessage: EmailMessage = { ...message, from };
 
-  if (process.env.VERCEL_ENV !== "production") {
+  if (!canSendRealEmail()) {
     console.log(
-      `[sendEmail] VERCEL_ENV=${process.env.VERCEL_ENV ?? "unset"} — logging instead of sending: ` +
+      `[sendEmail] APP_ENV=${process.env.APP_ENV ?? "unset"} — logging instead of sending: ` +
         `to=${resolvedMessage.to} subject="${resolvedMessage.subject}" provider=${providerId}`,
     );
     return { success: true, providerMessageId: "dev-noop" };

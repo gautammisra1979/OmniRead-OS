@@ -11,6 +11,7 @@ import { sql } from "~/db";
 import * as authSchema from "~/db/auth-schema";
 import { mergeAnonymousUserData } from "~/lib/mergeAnonymousUser";
 import { checkRateLimit } from "~/lib/rateLimit";
+import { getClientIpHeader } from "~/lib/appEnv";
 import { getConfiguredEmailProvider } from "~/lib/email/getProvider";
 import { sendEmail } from "~/lib/email/sendEmail";
 import { buildMagicLinkEmail } from "~/lib/email/templates/magicLink";
@@ -194,6 +195,9 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     autoSignIn: false,
+  },
+  advanced: {
+    ipAddress: { ipAddressHeaders: [getClientIpHeader()] },
   },
   rateLimit: {
     storage: "database",
