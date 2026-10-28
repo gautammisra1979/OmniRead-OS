@@ -1,3 +1,4 @@
+import { s3Provider } from "./s3";
 import { vercelBlobProvider } from "./vercelBlob";
 import type { StorageProvider } from "./types";
 
@@ -5,5 +6,6 @@ import type { StorageProvider } from "./types";
 export function getStorage(): StorageProvider {
   const provider = process.env.STORAGE_PROVIDER || "vercel-blob";
   if (provider === "vercel-blob") return vercelBlobProvider;
+  if (provider === "r2") return s3Provider;
   throw new Error(`Unknown STORAGE_PROVIDER "${provider}"`);
 }

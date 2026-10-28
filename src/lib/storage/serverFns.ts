@@ -83,6 +83,14 @@ export const discardUnusedUpload = createServerFn({ method: "POST" })
     }
   });
 
+/** Which browser-direct upload protocol the active storage adapter uses. */
+export const getMediaUploadFlow = createServerFn({ method: "GET" }).handler(
+  async (): Promise<"vercel-blob" | "presigned-put"> => {
+    await requireAdmin();
+    return getStorage().uploadFlow;
+  },
+);
+
 /** Uploads the store logo to public storage. Only PNG/SVG, max 1 MB. */
 const LOGO_MAX_BYTES = 1024 * 1024;
 

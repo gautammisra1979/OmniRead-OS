@@ -18,6 +18,8 @@ function tokenFor(visibility: StorageVisibility): string | undefined {
 let warnedMissingBase = false;
 
 export const vercelBlobProvider: StorageProvider = {
+  uploadFlow: "vercel-blob",
+
   async putObject(key, body, { visibility, contentType }) {
     await put(key, body, {
       access: visibility,

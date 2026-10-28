@@ -16,7 +16,9 @@ import { getStorage } from "~/lib/storage";
  * request). The Vercel Blob adapter uses wildcards scoped to Vercel's own Blob
  * domain rather than this store's specific account subdomain — this codebase
  * is resold as a template, and each buyer's Blob store gets a different
- * subdomain under the same domain. If the adapter cannot be resolved, both
+ * subdomain under the same domain. The S3-API (r2) adapter instead reports
+ * the exact public origin and the path-scoped private bucket URL, never a
+ * wildcard. If the adapter cannot be resolved, both
  * fall back to the public Blob wildcard so the header is always set.
  *
  * connect-src is 'self' plus the sources the active storage adapter needs

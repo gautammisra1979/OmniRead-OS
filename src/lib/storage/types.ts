@@ -16,6 +16,11 @@ export interface StorageProvider {
   signedReadUrl(key: string, expiresInSeconds: number): Promise<string>;
   /** CSP sources the browser needs to display public images and play private media. */
   cspSources(): { img: string[]; media: string[] };
-  /** Browser-direct private media upload handshake. */
+  /** Which browser-direct upload protocol client.ts must speak for this adapter. */
+  readonly uploadFlow: "vercel-blob" | "presigned-put";
+  /**
+   * Browser-direct private media upload handshake. The request and response
+   * shapes are adapter-specific (see uploadFlow).
+   */
   handleClientUpload(request: Request): Promise<Response>;
 }
