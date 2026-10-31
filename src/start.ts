@@ -18,8 +18,10 @@ import { getStorage } from "~/lib/storage";
  * is resold as a template, and each buyer's Blob store gets a different
  * subdomain under the same domain. The S3-API (r2) adapter instead reports
  * the exact public origin and the path-scoped private bucket URL, never a
- * wildcard. If the adapter cannot be resolved, both
- * fall back to the public Blob wildcard so the header is always set.
+ * wildcard. If the adapter cannot be resolved, both fall back so the header
+ * is always set: to 'self' only (plus data: / blob:) when STORAGE_PROVIDER is
+ * not vercel-blob (r2 or unknown), and to the public Blob wildcard on the
+ * Vercel path (provider unset or vercel-blob).
  *
  * connect-src is 'self' plus the sources the active storage adapter needs
  * for browser-direct uploads (getStorage().cspConnectOrigins(), resolved per
@@ -36,9 +38,13 @@ function imgAndMediaSrc(): { img: string; media: string } {
     };
   } catch (err) {
     console.error("CSP: storage img/media sources unavailable, using fallback:", err);
+    // Read per call, like getStorage(). Never widen to the Vercel wildcard
+    // for a non-Vercel provider.
+    const vercel = (process.env.STORAGE_PROVIDER || "vercel-blob") === "vercel-blob";
+    const extra = vercel ? ` ${FALLBACK_PUBLIC_SOURCE}` : "";
     return {
-      img: `'self' data: ${FALLBACK_PUBLIC_SOURCE}`,
-      media: `'self' blob: ${FALLBACK_PUBLIC_SOURCE}`,
+      img: `'self' data:${extra}`,
+      media: `'self' blob:${extra}`,
     };
   }
 }

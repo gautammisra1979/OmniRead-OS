@@ -1,0 +1,34 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "omniread-dev",
+  "account_id": "94f72255308bb250384815a463015a10",
+  "compatibility_date": "2026-10-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "@tanstack/react-start/server-entry",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  // Top level = dev (a build without CLOUDFLARE_ENV lands here). Non-secret only;
+  // secrets via `wrangler secret put`, local values in .dev.vars.
+  "vars": {
+    "APP_ENV": "development",
+    "CLIENT_IP_HEADER": "cf-connecting-ip",
+    "STORAGE_PROVIDER": "r2",
+    "S3_ENDPOINT": "https://94f72255308bb250384815a463015a10.r2.cloudflarestorage.com",
+    "S3_REGION": "auto",
+    "S3_PUBLIC_BUCKET": "omni-dev-covers",
+    "S3_PRIVATE_BUCKET": "omni-dev-media",
+    "STORAGE_PUBLIC_BASE_URL": "https://pub-ba38ebbac762452e960a78b1eb8ae242.r2.dev",
+    "BETTER_AUTH_URL": "https://omniread-dev.omni-os-lab.workers.dev"
+  },
+  "env": {
+    "production": {
+      "name": "omniread-prod",
+      // Completed at 16d. Wrangler does not inherit vars, so production fails
+      // closed on missing storage/auth vars until then.
+      "vars": {
+        "APP_ENV": "production",
+        "CLIENT_IP_HEADER": "cf-connecting-ip"
+      }
+    }
+  }
+}

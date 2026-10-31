@@ -18,3 +18,7 @@ node_modules
 src/routeTree.gen.ts
 .vercel
 .env*
+
+# Cloudflare: local dev secrets and wrangler state.
+.dev.vars*
+.wrangler/
